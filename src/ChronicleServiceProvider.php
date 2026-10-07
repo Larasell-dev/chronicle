@@ -45,9 +45,11 @@ class ChronicleServiceProvider extends ServiceProvider
             });
 
             $logger->extend('posthog', function (Application $app, array $config): Logger {
+                $apiKey = $config['api_key'] ?? (string) config('chronicle.posthog.api_key');
+
                 $handler = new PostHogHandler(
                     host: $config['host'] ?? (string) config('chronicle.posthog.host'),
-                    apiKey: $config['api_key'] ?? (string) config('chronicle.posthog.api_key'),
+                    apiKey: is_string($apiKey) ? $apiKey : '',
                     scope: $config['scope'] ?? 'chronicle',
                     level: $config['level'] ?? Logger::INFO,
                     provider: $app->has(LoggerProviderInterface::class) ? $app->make(LoggerProviderInterface::class) : null,

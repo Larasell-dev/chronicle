@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Log;
+use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Logging\PostHogHandler;
 use OpenTelemetry\API\Logs\LoggerInterface;
 use OpenTelemetry\API\Logs\LogRecord;
@@ -117,13 +118,22 @@ it('maps entry fields to otel attributes', function () {
     ])->not->toHaveKeys(['timestamp', 'type']);
 });
 
-it('does not emit without an api key', function () {
-    config()->set('logging.channels.chronicle', [
-        'driver' => 'posthog',
-        'api_key' => '',
-    ]);
+it('throws in debug mode when the posthog channel is enabled without an api key', function () {
+    config()->set('app.debug', true);
+    config()->set('chronicle.posthog.enabled', true);
+    config()->set('chronicle.posthog.api_key', null);
+    config()->set('chronicle.channel', 'posthog');
 
-    Log::channel('chronicle')->info('{"type":"request"}');
+    app(Chronicle::class)->record('request');
+})->throws(RuntimeException::class, 'POSTHOG_API_KEY is required');
 
-    expect(true)->toBeTrue();
+it('does not throw outside debug mode when the api key is missing', function () {
+    config()->set('app.debug', false);
+    config()->set('chronicle.posthog.enabled', true);
+    config()->set('chronicle.posthog.api_key', null);
+    config()->set('chronicle.channel', 'posthog');
+
+    $record = fn () => app(Chronicle::class)->record('request');
+
+    expect($record)->not->toThrow(RuntimeException::class);
 });
