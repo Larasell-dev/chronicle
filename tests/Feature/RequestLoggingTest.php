@@ -6,6 +6,8 @@ use Larasell\Chronicle\Http\Middleware\LogRequests;
 it('writes one structured json entry per request', function () {
     config()->set('chronicle.enabled', true);
 
+    @unlink(storage_path('logs/chronicle.log'));
+
     Route::post('/login', fn () => 'ok')->middleware(LogRequests::class);
 
     $this->post('/login', ['email' => 'nils@example.com']);
