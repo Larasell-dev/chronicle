@@ -2,23 +2,34 @@
 
 namespace Larasell\Chronicle\Logging;
 
-use Illuminate\Support\Facades\Http;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;
-use Monolog\LogRecord;
+use Monolog\LogRecord as MonologRecord;
+use OpenTelemetry\API\Logs\LoggerInterface;
+use OpenTelemetry\API\Logs\LogRecord;
+use OpenTelemetry\API\Logs\Severity;
+use OpenTelemetry\Contrib\Otlp\LogsExporter;
+use OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory;
+use OpenTelemetry\SDK\Logs\LoggerProvider;
+use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
+use OpenTelemetry\SDK\Logs\Processor\SimpleLogRecordProcessor;
 
 class PostHogHandler extends AbstractProcessingHandler
 {
+    protected ?LoggerInterface $logger = null;
+
     public function __construct(
         protected string $host,
         protected string $apiKey,
+        protected string $scope = 'chronicle',
         int|string|Level $level = Level::Info,
         bool $bubble = true,
+        protected ?LoggerProviderInterface $provider = null,
     ) {
         parent::__construct($level, $bubble);
     }
 
-    protected function write(LogRecord $record): void
+    protected function write(MonologRecord $record): void
     {
         if ($this->apiKey === '') {
             return;
@@ -30,35 +41,47 @@ class PostHogHandler extends AbstractProcessingHandler
             return;
         }
 
-        $this->send($entry);
+        $logger = $this->otlpLogger();
+
+        if ($logger === null) {
+            return;
+        }
+
+        $logger->emit(
+            (new LogRecord($entry['type'] ?? 'log'))
+                ->setSeverityNumber(Severity::INFO)
+                ->setAttributes($this->attributes($entry)),
+        );
     }
 
-    protected function send(array $entry): void
+    protected function otlpLogger(): ?LoggerInterface
     {
-        Http::timeout(5)
-            ->withToken($this->apiKey)
-            ->withHeaders(['Content-Type' => 'application/json'])
-            ->post(rtrim($this->host, '/').'/i/v1/logs', [
-                'resourceLogs' => [[
-                    'resource' => [
-                        'attributes' => $this->attributes([
-                            'service.name' => config('chronicle.posthog.service', config('app.name')),
-                            'deployment.environment' => config('app.env'),
-                        ]),
-                    ],
-                    'scopeLogs' => [[
-                        'scope' => [
-                            'name' => 'chronicle',
-                        ],
-                        'logRecords' => [
-                            $this->toLogRecord($entry),
-                        ],
-                    ]],
-                ]],
-            ]);
+        if ($this->logger !== null) {
+            return $this->logger;
+        }
+
+        $provider = $this->provider ?? $this->buildProvider();
+
+        return $this->logger = $provider->getLogger($this->scope);
     }
 
-    protected function toLogRecord(array $entry): array
+    protected function buildProvider(): LoggerProviderInterface
+    {
+        $transport = (new OtlpHttpTransportFactory)->create(
+            rtrim($this->host, '/').'/i/v1/logs',
+            'application/x-protobuf',
+            ['Authorization' => 'Bearer '.$this->apiKey],
+        );
+
+        return LoggerProvider::builder()
+            ->addLogRecordProcessor(new SimpleLogRecordProcessor(new LogsExporter($transport)))
+            ->build();
+    }
+
+    /**
+     * @return array<string, scalar>
+     */
+    protected function attributes(array $entry): array
     {
         $attributes = collect($entry)
             ->except(['timestamp', 'type'])
@@ -73,34 +96,6 @@ class PostHogHandler extends AbstractProcessingHandler
             $attributes['sessionId'] = (string) $entry['session.id'];
         }
 
-        return [
-            'timeUnixNano' => (string) now()->getPreciseTimestamp(9),
-            'severityText' => 'INFO',
-            'body' => ['stringValue' => $entry['type']],
-            'attributes' => $this->attributes($attributes),
-        ];
-    }
-
-    /**
-     * @return list<array{key: string, value: array<string, mixed>}>
-     */
-    protected function attributes(array $attributes): array
-    {
-        return collect($attributes)
-            ->map(function (mixed $value, string|int $key): array {
-                $type = match (true) {
-                    is_int($value) => 'intValue',
-                    is_float($value) => 'doubleValue',
-                    is_bool($value) => 'boolValue',
-                    default => 'stringValue',
-                };
-
-                return [
-                    'key' => (string) $key,
-                    'value' => [$type => $value],
-                ];
-            })
-            ->values()
-            ->all();
+        return $attributes;
     }
 }

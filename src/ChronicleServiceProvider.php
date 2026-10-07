@@ -9,6 +9,7 @@ use Larasell\Chronicle\Logging\ChronicleFormatter;
 use Larasell\Chronicle\Logging\PostHogHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
+use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
 
 class ChronicleServiceProvider extends ServiceProvider
 {
@@ -47,7 +48,9 @@ class ChronicleServiceProvider extends ServiceProvider
                 $handler = new PostHogHandler(
                     host: $config['host'] ?? (string) config('chronicle.posthog.host'),
                     apiKey: $config['api_key'] ?? (string) config('chronicle.posthog.api_key'),
+                    scope: $config['scope'] ?? 'chronicle',
                     level: $config['level'] ?? Logger::INFO,
+                    provider: $app->has(LoggerProviderInterface::class) ? $app->make(LoggerProviderInterface::class) : null,
                 );
 
                 return new Logger($app->environment(), [$handler]);

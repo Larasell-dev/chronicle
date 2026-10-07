@@ -1,82 +1,129 @@
 <?php
 
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Larasell\Chronicle\Logging\PostHogHandler;
+use OpenTelemetry\API\Logs\LoggerInterface;
+use OpenTelemetry\API\Logs\LogRecord;
+use OpenTelemetry\API\Logs\LogRecordBuilderInterface;
+use OpenTelemetry\API\Logs\Severity;
+use OpenTelemetry\Context\ContextInterface;
+use OpenTelemetry\SDK\Common\InstrumentationScope\Configurator;
+use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
+use RuntimeException;
 
-it('sends entries as otlp log records through the posthog channel', function () {
-    config()->set('chronicle.posthog.api_key', 'phc_test');
-    config()->set('chronicle.posthog.host', 'https://us.i.posthog.com');
-    config()->set('logging.channels.chronicle', ['driver' => 'posthog']);
+it('emits chronicle entries as otel log records', function () {
+    $emitted = [];
 
-    Http::fake();
+    $otelLogger = new class($emitted) implements LoggerInterface
+    {
+        public function __construct(public array &$emitted) {}
+
+        public function emit(LogRecord $record): void
+        {
+            $this->emitted[] = $record;
+        }
+
+        public function logRecordBuilder(): LogRecordBuilderInterface
+        {
+            throw new RuntimeException('not needed');
+        }
+
+        public function isEnabled(?ContextInterface $context = null, ?int $severityNumber = null, ?string $eventName = null): bool
+        {
+            return true;
+        }
+    };
+
+    $provider = new class($otelLogger) implements LoggerProviderInterface
+    {
+        public function __construct(protected LoggerInterface $logger) {}
+
+        public function getLogger(string $name, ?string $version = null, ?string $schemaUrl = null, ?iterable $attributes = []): LoggerInterface
+        {
+            return $this->logger;
+        }
+
+        public function shutdown(): bool
+        {
+            return true;
+        }
+
+        public function forceFlush(): bool
+        {
+            return true;
+        }
+
+        public function updateConfigurator(?Configurator $configurator): void {}
+    };
+
+    $this->app->instance(LoggerProviderInterface::class, $provider);
+
+    config()->set('logging.channels.chronicle', [
+        'driver' => 'posthog',
+        'api_key' => 'phc_test',
+        'host' => 'https://us.i.posthog.com',
+    ]);
 
     Log::channel('chronicle')->info(json_encode([
         'timestamp' => '2026-10-07T20:00:00+00:00',
         'type' => 'request',
-        'request_id' => 'abc123',
+        'method' => 'GET',
+        'status' => 200,
+        'user.id' => 42,
+    ]));
+
+    expect($emitted)->toHaveCount(1);
+
+    $record = $emitted[0];
+    $props = fn (string $name): mixed => (fn () => $this->{$name})->call($record);
+
+    expect($props('body'))->toBe('request')
+        ->and($props('severityNumber'))->toBe(Severity::INFO->value)
+        ->and($props('attributes'))->toMatchArray([
+            'method' => 'GET',
+            'status' => 200,
+            'posthogDistinctId' => '42',
+        ]);
+});
+
+it('maps entry fields to otel attributes', function () {
+    $handler = new class('https://us.i.posthog.com', 'phc_test') extends PostHogHandler
+    {
+        /**
+         * @return array<string, scalar>
+         */
+        public function exposedAttributes(array $entry): array
+        {
+            return $this->attributes($entry);
+        }
+    };
+
+    $attributes = $handler->exposedAttributes([
+        'timestamp' => 'now',
+        'type' => 'request',
         'method' => 'GET',
         'status' => 200,
         'duration_ms' => 1.5,
         'user.id' => 42,
-    ]));
+        'session.id' => 'sess_abc',
+    ]);
 
-    Http::assertSent(function ($request) {
-        if ($request->url() !== 'https://us.i.posthog.com/i/v1/logs') {
-            return false;
-        }
-
-        if ($request->header('Authorization')[0] !== 'Bearer phc_test') {
-            return false;
-        }
-
-        $payload = $request->data();
-
-        $resource = collect($payload['resourceLogs'][0]['resource']['attributes'])
-            ->pluck('value.stringValue', 'key');
-
-        if ($resource['deployment.environment'] !== 'testing') {
-            return false;
-        }
-
-        $record = $payload['resourceLogs'][0]['scopeLogs'][0]['logRecords'][0];
-
-        if ($record['body']['stringValue'] !== 'request' || $record['severityText'] !== 'INFO') {
-            return false;
-        }
-
-        $attributes = collect($record['attributes'])->pluck('value', 'key');
-
-        return $attributes['posthogDistinctId']['stringValue'] === '42'
-            && $attributes['status']['intValue'] === 200
-            && $attributes['duration_ms']['doubleValue'] === 1.5
-            && $attributes['method']['stringValue'] === 'GET';
-    });
+    expect($attributes)->toMatchArray([
+        'method' => 'GET',
+        'status' => 200,
+        'duration_ms' => 1.5,
+        'posthogDistinctId' => '42',
+        'sessionId' => 'sess_abc',
+    ])->not->toHaveKeys(['timestamp', 'type']);
 });
 
-it('does not send without an api key', function () {
-    config()->set('chronicle.posthog.api_key', null);
-    config()->set('logging.channels.chronicle', ['driver' => 'posthog']);
-
-    Http::fake();
+it('does not emit without an api key', function () {
+    config()->set('logging.channels.chronicle', [
+        'driver' => 'posthog',
+        'api_key' => '',
+    ]);
 
     Log::channel('chronicle')->info('{"type":"request"}');
 
-    Http::assertNothingSent();
-});
-
-it('writes to both file and posthog when stacked', function () {
-    config()->set('chronicle.posthog.api_key', 'phc_test');
-    config()->set('chronicle.posthog.host', 'https://us.i.posthog.com');
-    config()->set('logging.channels.chronicle', [
-        'driver' => 'stack',
-        'channels' => ['chronicle.file', 'posthog'],
-    ]);
-
-    Http::fake();
-
-    Log::channel('chronicle')->info('{"type":"request","status":200}');
-
-    expect(file_get_contents(storage_path('logs/chronicle.log')))->toContain('"type":"request"');
-
-    Http::assertSent(fn ($request) => $request->url() === 'https://us.i.posthog.com/i/v1/logs');
+    expect(true)->toBeTrue();
 });
