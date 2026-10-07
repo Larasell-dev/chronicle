@@ -6,8 +6,10 @@ use Illuminate\Foundation\Application;
 use Illuminate\Log\LogManager;
 use Illuminate\Support\ServiceProvider;
 use Larasell\Chronicle\Logging\ChronicleFormatter;
+use Larasell\Chronicle\Logging\PostHogHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
+use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
 
 class ChronicleServiceProvider extends ServiceProvider
 {
@@ -15,7 +17,7 @@ class ChronicleServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/chronicle.php', 'chronicle');
 
-        $this->registerLoggingChannel();
+        $this->registerLoggingDrivers();
 
         $this->app->singleton(Chronicle::class);
         $this->app->singleton(RequestLogger::class);
@@ -28,7 +30,7 @@ class ChronicleServiceProvider extends ServiceProvider
         ], 'chronicle.config');
     }
 
-    protected function registerLoggingChannel(): void
+    protected function registerLoggingDrivers(): void
     {
         $this->app->extend('log', function (LogManager $logger): LogManager {
             $logger->extend('chronicle', function (Application $app, array $config): Logger {
@@ -39,10 +41,40 @@ class ChronicleServiceProvider extends ServiceProvider
 
                 $handler->setFormatter(new ChronicleFormatter);
 
-                return new Logger($this->app->environment(), [$handler]);
+                return new Logger($app->environment(), [$handler]);
             });
 
+            $logger->extend('posthog', function (Application $app, array $config): Logger {
+                $apiKey = $config['api_key'] ?? (string) config('chronicle.posthog.api_key');
+
+                $handler = new PostHogHandler(
+                    host: $config['host'] ?? (string) config('chronicle.posthog.host'),
+                    apiKey: is_string($apiKey) ? $apiKey : '',
+                    scope: $config['scope'] ?? 'chronicle',
+                    level: $config['level'] ?? Logger::INFO,
+                    provider: $app->has(LoggerProviderInterface::class) ? $app->make(LoggerProviderInterface::class) : null,
+                );
+
+                return new Logger($app->environment(), [$handler]);
+            });
+
+            $channels = ['chronicle.file'];
+
+            if (config('chronicle.posthog.enabled', false)) {
+                $channels[] = 'posthog';
+            }
+
             config()->set('logging.channels.chronicle', config('logging.channels.chronicle') ?? [
+                'driver' => 'stack',
+                'channels' => $channels,
+            ]);
+
+            config()->set('logging.channels.posthog', config('logging.channels.posthog') ?? [
+                'driver' => 'posthog',
+                'level' => 'info',
+            ]);
+
+            config()->set('logging.channels.chronicle.file', config('logging.channels.chronicle.file') ?? [
                 'driver' => 'chronicle',
                 'level' => 'info',
             ]);

@@ -4,9 +4,16 @@ return [
     'enabled' => env('CHRONICLE_ENABLED', true),
 
     /*
-     * The Laravel log channel used by Chronicle. The package registers a
-     * custom `chronicle` driver; define a `chronicle` channel in your app's
-     * config/logging.php to override path, driver, or stack it elsewhere.
+     * The Laravel log channel Chronicle writes to. Defaults to the
+     * `chronicle` stack (file + PostHog). The package registers the
+     * `chronicle` (file) and `posthog` drivers, so you can compose
+     * your own stack in config/logging.php.
      */
     'channel' => env('CHRONICLE_CHANNEL', 'chronicle'),
+
+    'posthog' => [
+        'enabled' => env('CHRONICLE_POSTHOG_ENABLED', false),
+        'api_key' => env('POSTHOG_API_KEY'),
+        'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
+    ],
 ];
