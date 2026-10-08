@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Logging\PostHogHandler;
+use Monolog\Level;
 use OpenTelemetry\API\Logs\LoggerInterface;
 use OpenTelemetry\API\Logs\LogRecord;
 use OpenTelemetry\API\Logs\LogRecordBuilderInterface;
@@ -12,9 +13,8 @@ use OpenTelemetry\SDK\Common\InstrumentationScope\Configurator;
 use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
 use RuntimeException;
 
-it('emits chronicle entries as otel log records', function () {
-    $emitted = [];
-
+function posthogTestProvider(array &$emitted): LoggerProviderInterface
+{
     $otelLogger = new class($emitted) implements LoggerInterface
     {
         public function __construct(public array &$emitted) {}
@@ -35,7 +35,7 @@ it('emits chronicle entries as otel log records', function () {
         }
     };
 
-    $provider = new class($otelLogger) implements LoggerProviderInterface
+    return new class($otelLogger) implements LoggerProviderInterface
     {
         public function __construct(protected LoggerInterface $logger) {}
 
@@ -56,8 +56,34 @@ it('emits chronicle entries as otel log records', function () {
 
         public function updateConfigurator(?Configurator $configurator): void {}
     };
+}
 
-    $this->app->instance(LoggerProviderInterface::class, $provider);
+function posthogSeverityForLevel(string|int|Level $level): int
+{
+    $emitted = [];
+
+    app()->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
+
+    config()->set('logging.channels.chronicle', [
+        'driver' => 'posthog',
+        'api_key' => 'phc_test',
+        'host' => 'https://us.i.posthog.com',
+    ]);
+
+    $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
+
+    Log::channel('chronicle')->log($level->getName(), json_encode(['type' => 'request']));
+
+    $record = $emitted[0];
+    $props = fn (string $name): mixed => (fn () => $this->{$name})->call($record);
+
+    return $props('severityNumber');
+}
+
+it('emits chronicle entries as otel log records', function () {
+    $emitted = [];
+
+    $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
 
     config()->set('logging.channels.chronicle', [
         'driver' => 'posthog',
@@ -86,6 +112,16 @@ it('emits chronicle entries as otel log records', function () {
             'posthogDistinctId' => '42',
         ]);
 });
+
+it('maps monolog levels to otel severities', function (string|int|Level $level, int $expected) {
+    expect(posthogSeverityForLevel($level))->toBe($expected);
+})->with([
+    ['info', Severity::INFO->value],
+    ['warning', Severity::WARN->value],
+    ['error', Severity::ERROR->value],
+    [Level::Warning, Severity::WARN->value],
+    [Level::Error, Severity::ERROR->value],
+]);
 
 it('maps entry fields to otel attributes', function () {
     $handler = new class('https://us.i.posthog.com', 'phc_test') extends PostHogHandler
