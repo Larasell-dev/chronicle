@@ -49,9 +49,21 @@ class PostHogHandler extends AbstractProcessingHandler
 
         $logger->emit(
             (new LogRecord($entry['type'] ?? 'log'))
-                ->setSeverityNumber(Severity::INFO)
+                ->setSeverityNumber($this->severityFor($record->level)->value)
                 ->setAttributes($this->attributes($entry)),
         );
+    }
+
+    protected function severityFor(Level $level): Severity
+    {
+        return match ($level) {
+            Level::Emergency, Level::Alert, Level::Critical => Severity::FATAL,
+            Level::Error => Severity::ERROR,
+            Level::Warning => Severity::WARN,
+            Level::Notice => Severity::INFO,
+            Level::Info => Severity::INFO,
+            Level::Debug => Severity::DEBUG,
+        };
     }
 
     protected function otlpLogger(): ?LoggerInterface

@@ -3,6 +3,7 @@
 namespace Larasell\Chronicle;
 
 use Illuminate\Http\Request;
+use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
 
 class RequestLogger
@@ -22,6 +23,19 @@ class RequestLogger
             'duration_ms' => round((microtime(true) - $startTime) * 1000, 2),
             'ip' => $request->ip(),
             'user.id' => $request->user()?->getAuthIdentifier(),
-        ]);
+        ], $this->levelForStatus($response->getStatusCode()));
+    }
+
+    protected function levelForStatus(int $status): Level
+    {
+        if ($status >= 500) {
+            return Level::Error;
+        }
+
+        if ($status >= 400) {
+            return Level::Warning;
+        }
+
+        return Level::Info;
     }
 }

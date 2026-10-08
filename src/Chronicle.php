@@ -3,11 +3,12 @@
 namespace Larasell\Chronicle;
 
 use Illuminate\Support\Facades\Log;
+use Monolog\Level;
 use RuntimeException;
 
 class Chronicle
 {
-    public function record(string $type, array $payload = []): void
+    public function record(string $type, array $payload = [], Level|string $level = Level::Info): void
     {
         if (! config('chronicle.enabled', true)) {
             return;
@@ -20,7 +21,9 @@ class Chronicle
             'type' => $type,
         ], $payload);
 
-        Log::channel(config('chronicle.channel', 'chronicle'))->info(
+        $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
+
+        Log::channel(config('chronicle.channel', 'chronicle'))->{$level->getName()}(
             (string) json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
         );
     }
