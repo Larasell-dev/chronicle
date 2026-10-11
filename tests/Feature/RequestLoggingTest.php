@@ -2,8 +2,13 @@
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
+use InvalidArgumentException;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Http\Middleware\LogRequests;
+use Larasell\Chronicle\RequestLogger;
+use Larasell\Chronicle\Tests\Fixtures\NotASampler;
+use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
+use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
@@ -124,3 +129,47 @@ it('accepts an explicit level in chronicle record', function () {
         ->and($handler->getRecords()[0]->level)->toBe(Level::Warning)
         ->and(chronicleEntries($handler)[0]['status'])->toBe(200);
 });
+
+it('drops request logs when the sampler returns false', function () {
+    $handler = chronicleTestHandler();
+
+    config()->set('chronicle.sampling', SuccessfulRequestsSampler::class);
+
+    Route::get('/ok', fn () => 'ok')->middleware(LogRequests::class);
+    Route::get('/missing', fn () => abort(404))->middleware(LogRequests::class);
+
+    $this->get('/ok');
+    $this->get('/missing');
+
+    expect($handler->getRecords())->toHaveCount(1)
+        ->and(chronicleEntries($handler)[0]['status'])->toBe(200);
+});
+
+it('keeps every request log when no sampler is configured', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
+
+    $this->get('/ping');
+
+    expect($handler->getRecords())->toHaveCount(1);
+});
+
+it('passes request, response and payload to the sampler', function () {
+    $handler = chronicleTestHandler();
+
+    config()->set('chronicle.sampling', RecordingSampler::class);
+
+    Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
+
+    $this->get('/ping');
+
+    expect($handler->getRecords())->toHaveCount(1)
+        ->and(RecordingSampler::$seen)->toBe(['GET', 200, 'http://localhost/ping']);
+});
+
+it('throws when the configured sampler does not implement the interface', function () {
+    config()->set('chronicle.sampling', NotASampler::class);
+
+    app(RequestLogger::class)->log(request(), response('ok'), microtime(true));
+})->throws(InvalidArgumentException::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\Sampler');
