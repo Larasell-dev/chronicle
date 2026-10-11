@@ -164,6 +164,20 @@ it('merges context accumulated through chronicle set into error events', functio
         ->and($entry['error.message'])->toBe('boom');
 });
 
+it('collapses nested context arrays into dotted keys on error events', function () {
+    $handler = errorTestHandler();
+
+    Context::add(['job' => ['id' => 123, 'tags' => ['a', 'b']]]);
+
+    app(Chronicle::class)->recordError(new RuntimeException('boom'));
+
+    $entry = errorEntries($handler)[0];
+
+    expect($entry['job.id'])->toBe(123)
+        ->and($entry['job.tags'])->toBe('["a","b"]')
+        ->and($entry['error.message'])->toBe('boom');
+});
+
 it('does not record errors when chronicle is disabled', function () {
     $handler = errorTestHandler();
     config()->set('chronicle.enabled', false);
