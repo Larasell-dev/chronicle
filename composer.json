@@ -33,9 +33,21 @@
             "Larasell\\Chronicle\\Tests\\": "tests/"
         }
     },
+    "scripts": {
+        "test": "pest",
+        "format": "pint",
+        "format:check": "pint --test"
+    },
+    "scripts-descriptions": {
+        "test": "Run the test suite",
+        "format": "Fix code style with Pint",
+        "format:check": "Check code style with Pint without fixing"
+    },
     "config": {
         "allow-plugins": {
-            "pestphp/pest-plugin": true
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true,
+            "tbachert/spi": true
         }
     },
     "extra": {
