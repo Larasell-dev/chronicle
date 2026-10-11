@@ -2,8 +2,8 @@
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
-use InvalidArgumentException;
 use Larasell\Chronicle\Chronicle;
+use Larasell\Chronicle\ChronicleException;
 use Larasell\Chronicle\Http\Middleware\LogRequests;
 use Larasell\Chronicle\RequestLogger;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
@@ -116,8 +116,62 @@ it('logs 5xx responses at error level', function () {
 
     $this->get('/boom');
 
-    expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Error);
+    $records = array_values(array_filter(
+        $handler->getRecords(),
+        fn (LogRecord $record) => (json_decode($record->message, true)['type'] ?? null) === 'request',
+    ));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->level)->toBe(Level::Error);
+});
+
+it('logs a failed request as a single event with the exception merged', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/boom', fn () => throw new RuntimeException('boom'))->middleware(LogRequests::class);
+
+    $this->get('/boom')->assertStatus(500);
+
+    expect($handler->getRecords())->toHaveCount(1);
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['type'])->toBe('request')
+        ->and($entry['status'])->toBe(500)
+        ->and($entry['error.code'])->toBeNull()
+        ->and($entry['error.message'])->toBe('boom');
+});
+
+it('logs structured exception fields on failed requests', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/boom', fn () => throw ChronicleException::make(
+        code: 'billing.declined',
+        message: 'Payment failed',
+        why: 'Issuer declined the charge',
+        fix: 'Try a different card',
+    ))->middleware(LogRequests::class);
+
+    $this->get('/boom')->assertStatus(500);
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['error.code'])->toBe('billing.declined')
+        ->and($entry['error.why'])->toBe('Issuer declined the charge')
+        ->and($entry['error.fix'])->toBe('Try a different card');
+});
+
+it('logs http exceptions with their status on failed requests', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/missing', fn () => abort(404))->middleware(LogRequests::class);
+
+    $this->get('/missing')->assertStatus(404);
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['status'])->toBe(404)
+        ->and($entry['error.status'])->toBe(404);
 });
 
 it('accepts an explicit level in chronicle record', function () {
@@ -172,4 +226,4 @@ it('throws when the configured sampler does not implement the interface', functi
     config()->set('chronicle.sampling', NotASampler::class);
 
     app(RequestLogger::class)->log(request(), response('ok'), microtime(true));
-})->throws(InvalidArgumentException::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\Sampler');
+})->throws(ChronicleException::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\Sampler');
