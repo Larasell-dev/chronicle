@@ -2,6 +2,7 @@
 
 namespace Larasell\Chronicle;
 
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Monolog\Level;
 use Throwable;
@@ -30,7 +31,7 @@ class Chronicle
 
     public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
     {
-        $this->record('error', $this->errorPayload($e, $context), $level);
+        $this->record('error', array_merge(Context::all(), $this->errorPayload($e, $context)), $level);
     }
 
     public function errorPayload(Throwable $e, array $context = []): array

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
@@ -172,6 +173,70 @@ it('logs http exceptions on failed requests', function () {
 
     expect($entry['status'])->toBe(404)
         ->and($entry['error.message'])->toBe('');
+});
+
+it('merges context accumulated through chronicle set into the request event', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/context', function () {
+        Context::add([
+            'user.email' => 'nils@example.com',
+            'cart.items' => 3,
+        ]);
+
+        return 'ok';
+    })->middleware(LogRequests::class);
+
+    $this->get('/context');
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['user.email'])->toBe('nils@example.com')
+        ->and($entry['cart.items'])->toBe(3);
+});
+
+it('lets accumulated context override request fields but not error fields', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/override', function () {
+        Context::add([
+            'user.id' => 999,
+            'error.code' => 'hijacked',
+        ]);
+
+        throw new RuntimeException('boom');
+    })->middleware(LogRequests::class);
+
+    $this->get('/override')->assertStatus(500);
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['user.id'])->toBe(999)
+        ->and($entry['error.code'])->toBeNull()
+        ->and($entry['error.message'])->toBe('boom');
+});
+
+it('does not leak accumulated context once the context is flushed', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/marker', function () {
+        Context::add(['request.marker' => 'first']);
+
+        return 'ok';
+    })->middleware(LogRequests::class);
+
+    Route::get('/plain', fn () => 'ok')->middleware(LogRequests::class);
+
+    $this->get('/marker');
+
+    Context::flush();
+
+    $this->get('/plain');
+
+    $entries = chronicleEntries($handler);
+
+    expect($entries[0]['request.marker'])->toBe('first')
+        ->and($entries[1])->not->toHaveKey('request.marker');
 });
 
 it('accepts an explicit level in chronicle record', function () {
