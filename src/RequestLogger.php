@@ -17,7 +17,9 @@ class RequestLogger
     public function log(Request $request, Response $response, float $startTime): void
     {
         $payload = [
-            'request_id' => substr(bin2hex(random_bytes(16)), 0, 16),
+            'request' => [
+                'id' => substr(bin2hex(random_bytes(16)), 0, 16),
+            ],
             'method' => $request->getMethod(),
             'url' => $request->fullUrl(),
             'route' => $request->route()?->getName() ?: $request->route()?->uri(),
