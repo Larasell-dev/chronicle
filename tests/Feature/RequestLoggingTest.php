@@ -216,6 +216,30 @@ it('lets accumulated context override request fields but not error fields', func
         ->and($entry['error.message'])->toBe('boom');
 });
 
+it('collapses nested context arrays into dotted keys and json strings', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/nested', function () {
+        Context::add([
+            'user' => [
+                'email' => 'nils@example.com',
+                'plan' => 'pro',
+                'licenses' => ['pro', 'shop'],
+            ],
+        ]);
+
+        return 'ok';
+    })->middleware(LogRequests::class);
+
+    $this->get('/nested');
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['user.email'])->toBe('nils@example.com')
+        ->and($entry['user.plan'])->toBe('pro')
+        ->and($entry['user.licenses'])->toBe('["pro","shop"]');
+});
+
 it('does not leak accumulated context once the context is flushed', function () {
     $handler = chronicleTestHandler();
 

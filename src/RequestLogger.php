@@ -27,7 +27,7 @@ class RequestLogger
             'user.id' => $request->user()?->getAuthIdentifier(),
         ];
 
-        $payload = array_merge($payload, Context::all());
+        $payload = array_merge($payload, $this->chronicle->flattenContext(Context::all()));
 
         if ($response instanceof LaravelResponse && $response->exception !== null) {
             $payload = array_merge($payload, $this->chronicle->errorPayload($response->exception));

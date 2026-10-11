@@ -31,7 +31,33 @@ class Chronicle
 
     public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
     {
-        $this->record('error', array_merge(Context::all(), $this->errorPayload($e, $context)), $level);
+        $this->record('error', array_merge($this->flattenContext(Context::all()), $this->errorPayload($e, $context)), $level);
+    }
+
+    /**
+     * Collapse nested context arrays into flat, dot-notation string keys.
+     * Lists are collapsed into a truncated JSON string.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    public function flattenContext(array $context, string $prefix = ''): array
+    {
+        $flattened = [];
+
+        foreach ($context as $key => $value) {
+            $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
+
+            if (! is_array($value)) {
+                $flattened[$path] = $value;
+            } elseif (array_is_list($value)) {
+                $flattened[$path] = substr((string) json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR), 0, 1000);
+            } else {
+                $flattened = array_merge($flattened, $this->flattenContext($value, $path));
+            }
+        }
+
+        return $flattened;
     }
 
     public function errorPayload(Throwable $e, array $context = []): array
