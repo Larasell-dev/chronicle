@@ -62,8 +62,6 @@ it('records structured fields for exceptions implementing the contract', functio
         ->and($entry['error.why'])->toBe('Issuer declined the charge')
         ->and($entry['error.fix'])->toBe('Try a different card')
         ->and($entry['error.link'])->toBe('https://docs.example.com/errors#billing-declined')
-        ->and($entry['error.class'])->toBe(ChronicleException::class)
-        ->and($entry['error.file'])->toBeString()
         ->and($entry['error.status'])->toBeNull();
 });
 
@@ -77,8 +75,7 @@ it('records domain exceptions built through the structured error constructor', f
     expect($entry['error.code'])->toBe('teams.could-not-invite-member.email-already-invited')
         ->and($entry['error.message'])->toBe('Could not invite nils@example.com to team acme: they already have a pending invitation.')
         ->and($entry['error.why'])->toBe('A pending invitation for nils@example.com already exists in team acme')
-        ->and($entry['error.fix'])->toBe('Resend the existing invitation or remove it first')
-        ->and($entry['error.class'])->toBe(CouldNotInviteMember::class);
+        ->and($entry['error.fix'])->toBe('Resend the existing invitation or remove it first');
 });
 
 it('degrades to a stable shape for plain throwables', function () {
@@ -93,9 +90,7 @@ it('degrades to a stable shape for plain throwables', function () {
         ->and($entry['error.message'])->toBe('boom')
         ->and($entry['error.why'])->toBeNull()
         ->and($entry['error.fix'])->toBeNull()
-        ->and($entry['error.link'])->toBeNull()
-        ->and($entry['error.class'])->toBe(RuntimeException::class)
-        ->and($entry['error.file'])->toBeString();
+        ->and($entry['error.link'])->toBeNull();
 });
 
 it('extracts the http status from http exceptions', function () {

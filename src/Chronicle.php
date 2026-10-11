@@ -45,8 +45,6 @@ class Chronicle
             'error.why' => $structured ? $e->errorWhy() : null,
             'error.fix' => $structured ? $e->errorFix() : null,
             'error.link' => $structured ? $e->errorLink() : null,
-            'error.class' => $e::class,
-            'error.file' => $e->getFile().':'.$e->getLine(),
             'error.status' => $this->errorStatus($e),
         ]);
     }

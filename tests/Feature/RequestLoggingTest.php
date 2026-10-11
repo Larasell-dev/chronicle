@@ -13,7 +13,6 @@ use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
 use RuntimeException;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 function chronicleTestHandler(): TestHandler
 {
@@ -140,9 +139,7 @@ it('logs a failed request as a single event with the exception merged', function
     expect($entry['type'])->toBe('request')
         ->and($entry['status'])->toBe(500)
         ->and($entry['error.code'])->toBeNull()
-        ->and($entry['error.message'])->toBe('boom')
-        ->and($entry['error.class'])->toBe(RuntimeException::class)
-        ->and($entry['error.file'])->toBeString();
+        ->and($entry['error.message'])->toBe('boom');
 });
 
 it('logs structured exception fields on failed requests', function () {
@@ -174,8 +171,7 @@ it('logs http exceptions with their status on failed requests', function () {
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['status'])->toBe(404)
-        ->and($entry['error.status'])->toBe(404)
-        ->and($entry['error.class'])->toBe(NotFoundHttpException::class);
+        ->and($entry['error.status'])->toBe(404);
 });
 
 it('accepts an explicit level in chronicle record', function () {
