@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\ChronicleException;
@@ -147,6 +148,20 @@ it('accepts an explicit level in record error', function () {
     app(Chronicle::class)->recordError(new RuntimeException('boom'), Level::Critical);
 
     expect($handler->getRecords()[0]->level)->toBe(Level::Critical);
+});
+
+it('merges context accumulated through chronicle set into error events', function () {
+    $handler = errorTestHandler();
+
+    Context::add(['job.id' => 123, 'queue' => 'default']);
+
+    app(Chronicle::class)->recordError(new RuntimeException('boom'));
+
+    $entry = errorEntries($handler)[0];
+
+    expect($entry['job.id'])->toBe(123)
+        ->and($entry['queue'])->toBe('default')
+        ->and($entry['error.message'])->toBe('boom');
 });
 
 it('does not record errors when chronicle is disabled', function () {

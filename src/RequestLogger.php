@@ -4,6 +4,7 @@ namespace Larasell\Chronicle;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as LaravelResponse;
+use Illuminate\Support\Facades\Context;
 use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -25,6 +26,8 @@ class RequestLogger
             'ip' => $request->ip(),
             'user.id' => $request->user()?->getAuthIdentifier(),
         ];
+
+        $payload = array_merge($payload, Context::all());
 
         if ($response instanceof LaravelResponse && $response->exception !== null) {
             $payload = array_merge($payload, $this->chronicle->errorPayload($response->exception));
