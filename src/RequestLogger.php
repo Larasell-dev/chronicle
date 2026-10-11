@@ -24,14 +24,18 @@ class RequestLogger
             'status' => $response->getStatusCode(),
             'duration_ms' => round((microtime(true) - $startTime) * 1000, 2),
             'ip' => $request->ip(),
-            'user.id' => $request->user()?->getAuthIdentifier(),
+            'user' => [
+                'id' => $request->user()?->getAuthIdentifier(),
+            ],
         ];
 
-        $payload = array_merge($payload, $this->chronicle->flattenContext(Context::all()));
+        $payload = array_merge($payload, Context::all());
 
         if ($response instanceof LaravelResponse && $response->exception !== null) {
             $payload = array_merge($payload, $this->chronicle->errorPayload($response->exception));
         }
+
+        $payload = $this->chronicle->flattenContext($payload);
 
         if (! $this->shouldSample($request, $response, $payload)) {
             return;

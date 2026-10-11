@@ -31,7 +31,9 @@ class Chronicle
 
     public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
     {
-        $this->record('error', array_merge($this->flattenContext(Context::all()), $this->errorPayload($e, $context)), $level);
+        $payload = array_merge(Context::all(), $this->errorPayload($e, $context));
+
+        $this->record('error', $this->flattenContext($payload), $level);
     }
 
     /**
@@ -60,16 +62,22 @@ class Chronicle
         return $flattened;
     }
 
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
     public function errorPayload(Throwable $e, array $context = []): array
     {
         $structured = $e instanceof StructuredError;
 
         return array_merge($this->exceptionContext($e), $context, [
-            'error.code' => $structured ? $e->errorCode() : null,
-            'error.message' => $e->getMessage(),
-            'error.why' => $structured ? $e->errorWhy() : null,
-            'error.fix' => $structured ? $e->errorFix() : null,
-            'error.link' => $structured ? $e->errorLink() : null,
+            'error' => [
+                'code' => $structured ? $e->errorCode() : null,
+                'message' => $e->getMessage(),
+                'why' => $structured ? $e->errorWhy() : null,
+                'fix' => $structured ? $e->errorFix() : null,
+                'link' => $structured ? $e->errorLink() : null,
+            ],
         ]);
     }
 
