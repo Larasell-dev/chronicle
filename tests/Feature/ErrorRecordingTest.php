@@ -10,8 +10,6 @@ use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
 use RuntimeException;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 function errorTestHandler(): TestHandler
 {
@@ -61,8 +59,7 @@ it('records structured fields for exceptions implementing the contract', functio
         ->and($entry['error.message'])->toBe('Payment failed')
         ->and($entry['error.why'])->toBe('Issuer declined the charge')
         ->and($entry['error.fix'])->toBe('Try a different card')
-        ->and($entry['error.link'])->toBe('https://docs.example.com/errors#billing-declined')
-        ->and($entry['error.status'])->toBeNull();
+        ->and($entry['error.link'])->toBe('https://docs.example.com/errors#billing-declined');
 });
 
 it('records domain exceptions built through the structured error constructor', function () {
@@ -91,30 +88,6 @@ it('degrades to a stable shape for plain throwables', function () {
         ->and($entry['error.why'])->toBeNull()
         ->and($entry['error.fix'])->toBeNull()
         ->and($entry['error.link'])->toBeNull();
-});
-
-it('extracts the http status from http exceptions', function () {
-    $handler = errorTestHandler();
-
-    app(Chronicle::class)->recordError(new NotFoundHttpException('Not found'));
-
-    expect(errorEntries($handler)[0]['error.status'])->toBe(404);
-});
-
-it('extracts the http status from exceptions carrying a response', function () {
-    $handler = errorTestHandler();
-
-    $e = new class('boom') extends RuntimeException
-    {
-        public function getResponse(): Response
-        {
-            return new Response('teapot', 418);
-        }
-    };
-
-    app(Chronicle::class)->recordError($e);
-
-    expect(errorEntries($handler)[0]['error.status'])->toBe(418);
 });
 
 it('merges exception context and lets call-site context win', function () {

@@ -4,8 +4,6 @@ namespace Larasell\Chronicle;
 
 use Illuminate\Support\Facades\Log;
 use Monolog\Level;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class Chronicle
@@ -45,25 +43,7 @@ class Chronicle
             'error.why' => $structured ? $e->errorWhy() : null,
             'error.fix' => $structured ? $e->errorFix() : null,
             'error.link' => $structured ? $e->errorLink() : null,
-            'error.status' => $this->errorStatus($e),
         ]);
-    }
-
-    protected function errorStatus(Throwable $e): ?int
-    {
-        if ($e instanceof HttpExceptionInterface) {
-            return $e->getStatusCode();
-        }
-
-        if (method_exists($e, 'getResponse')) {
-            $response = $e->getResponse();
-
-            if ($response instanceof Response) {
-                return $response->getStatusCode();
-            }
-        }
-
-        return null;
     }
 
     protected function exceptionContext(Throwable $e): array

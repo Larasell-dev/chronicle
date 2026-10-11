@@ -161,7 +161,7 @@ it('logs structured exception fields on failed requests', function () {
         ->and($entry['error.fix'])->toBe('Try a different card');
 });
 
-it('logs http exceptions with their status on failed requests', function () {
+it('logs http exceptions on failed requests', function () {
     $handler = chronicleTestHandler();
 
     Route::get('/missing', fn () => abort(404))->middleware(LogRequests::class);
@@ -171,7 +171,7 @@ it('logs http exceptions with their status on failed requests', function () {
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['status'])->toBe(404)
-        ->and($entry['error.status'])->toBe(404);
+        ->and($entry['error.message'])->toBe('');
 });
 
 it('accepts an explicit level in chronicle record', function () {
