@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
@@ -238,6 +239,62 @@ it('collapses nested context arrays into dotted keys and json strings', function
     expect($entry['user.email'])->toBe('nils@example.com')
         ->and($entry['user.plan'])->toBe('pro')
         ->and($entry['user.licenses'])->toBe('["pro","shop"]');
+});
+
+it('keeps request user data when context enriches the same group', function () {
+    $handler = chronicleTestHandler();
+
+    Route::get('/enriched', function () {
+        Context::add([
+            'user' => [
+                'email' => 'nils@example.com',
+                'email_verified' => true,
+            ],
+        ]);
+
+        return 'ok';
+    })->middleware(LogRequests::class);
+
+    $this->actingAs(new class implements Authenticatable
+    {
+        public function getAuthIdentifierName(): string
+        {
+            return 'id';
+        }
+
+        public function getAuthIdentifier(): int
+        {
+            return 42;
+        }
+
+        public function getAuthPassword(): string
+        {
+            return '';
+        }
+
+        public function getAuthPasswordName(): string
+        {
+            return 'password';
+        }
+
+        public function getRememberToken(): string
+        {
+            return '';
+        }
+
+        public function setRememberToken($value): void {}
+
+        public function getRememberTokenName(): string
+        {
+            return 'remember_token';
+        }
+    })->get('/enriched');
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['user.id'])->toBe(42)
+        ->and($entry['user.email'])->toBe('nils@example.com')
+        ->and($entry['user.email_verified'])->toBeTrue();
 });
 
 it('does not leak accumulated context once the context is flushed', function () {
