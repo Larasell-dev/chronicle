@@ -3,10 +3,10 @@
 namespace Larasell\Chronicle;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Response as LaravelResponse;
 use Illuminate\Support\Facades\Context;
 use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
+use Throwable;
 
 class RequestLogger
 {
@@ -34,8 +34,10 @@ class RequestLogger
         $payload = $this->chronicle->flattenContext($payload);
         $payload = array_merge($payload, $this->chronicle->flattenContext(Context::all()));
 
-        if ($response instanceof LaravelResponse && $response->exception !== null) {
-            $payload = array_merge($payload, $this->chronicle->flattenContext($this->chronicle->errorPayload($response->exception)));
+        $exception = property_exists($response, 'exception') ? $response->exception : null;
+
+        if ($exception instanceof Throwable) {
+            $payload = array_merge($payload, $this->chronicle->flattenContext($this->chronicle->errorPayload($exception)));
         }
 
         if (! $this->shouldSample($request, $response, $payload)) {

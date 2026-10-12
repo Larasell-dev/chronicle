@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
@@ -141,6 +142,20 @@ it('logs a failed request as a single event with the exception merged', function
     expect($entry['type'])->toBe('request')
         ->and($entry['status'])->toBe(500)
         ->and($entry['error.code'])->toBeNull()
+        ->and($entry['error.message'])->toBe('boom');
+});
+
+it('merges the exception from a json error response', function () {
+    $handler = chronicleTestHandler();
+
+    $response = response()->json(['component' => 'error-page'], 500)
+        ->withException(new RuntimeException('boom'));
+
+    app(RequestLogger::class)->log(Request::create('/contact', 'POST'), $response, microtime(true));
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['status'])->toBe(500)
         ->and($entry['error.message'])->toBe('boom');
 });
 
