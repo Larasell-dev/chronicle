@@ -1,6 +1,6 @@
 <?php
 
-namespace Larasell\Chronicle;
+namespace Larasell\Chronicle\Requests;
 
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;

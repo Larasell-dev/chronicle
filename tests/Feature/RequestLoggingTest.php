@@ -7,8 +7,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\ChronicleException;
-use Larasell\Chronicle\Http\Middleware\LogRequests;
-use Larasell\Chronicle\RequestLogger;
+use Larasell\Chronicle\Requests\LogRequests;
+use Larasell\Chronicle\Requests\RequestLogger;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
 use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
 use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
@@ -387,4 +387,4 @@ it('throws when the configured sampler does not implement the interface', functi
     config()->set('chronicle.sampling', NotASampler::class);
 
     app(RequestLogger::class)->log(request(), response('ok'), microtime(true));
-})->throws(ChronicleException::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\Sampler');
+})->throws(ChronicleException::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\Requests\Sampler');

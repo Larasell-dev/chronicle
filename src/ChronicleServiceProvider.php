@@ -5,8 +5,9 @@ namespace Larasell\Chronicle;
 use Illuminate\Foundation\Application;
 use Illuminate\Log\LogManager;
 use Illuminate\Support\ServiceProvider;
-use Larasell\Chronicle\Logging\ChronicleFormatter;
-use Larasell\Chronicle\Logging\PostHogHandler;
+use Larasell\Chronicle\Outputs\ChronicleFormatter;
+use Larasell\Chronicle\Outputs\PostHogHandler;
+use Larasell\Chronicle\Requests\RequestLogger;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
 use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
@@ -53,6 +54,7 @@ class ChronicleServiceProvider extends ServiceProvider
                     scope: $config['scope'] ?? 'chronicle',
                     level: $config['level'] ?? Logger::INFO,
                     provider: $app->has(LoggerProviderInterface::class) ? $app->make(LoggerProviderInterface::class) : null,
+                    debug: $app->hasDebugModeEnabled(),
                 );
 
                 return new Logger($app->environment(), [$handler]);

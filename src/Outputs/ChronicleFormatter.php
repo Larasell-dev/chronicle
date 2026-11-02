@@ -1,6 +1,6 @@
 <?php
 
-namespace Larasell\Chronicle\Logging;
+namespace Larasell\Chronicle\Outputs;
 
 use Monolog\Formatter\LineFormatter;
 

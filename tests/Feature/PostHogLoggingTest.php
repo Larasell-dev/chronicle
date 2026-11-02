@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\Logging\PostHogHandler;
+use Larasell\Chronicle\Outputs\PostHogHandler;
 use Monolog\Level;
 use OpenTelemetry\API\Logs\LoggerInterface;
 use OpenTelemetry\API\Logs\LogRecord;
