@@ -6,11 +6,11 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\ChronicleException;
 use Larasell\Chronicle\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\Requests\RequestLogger;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
+use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
 use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
 use Monolog\Handler\TestHandler;
@@ -163,12 +163,7 @@ it('merges the exception from a json error response', function () {
 it('logs structured exception fields on failed requests', function () {
     $handler = chronicleTestHandler();
 
-    Route::get('/boom', fn () => throw ChronicleException::make(
-        code: 'billing.declined',
-        message: 'Payment failed',
-        why: 'Issuer declined the charge',
-        fix: 'Try a different card',
-    ))->middleware(LogRequests::class);
+    Route::get('/boom', fn () => throw PaymentDeclined::byIssuer())->middleware(LogRequests::class);
 
     $this->get('/boom')->assertStatus(500);
 

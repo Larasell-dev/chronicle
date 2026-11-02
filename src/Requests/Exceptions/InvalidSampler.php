@@ -2,11 +2,15 @@
 
 namespace Larasell\Chronicle\Requests\Exceptions;
 
-use Larasell\Chronicle\ChronicleException;
+use Larasell\Chronicle\Errors\HasStructuredError;
+use Larasell\Chronicle\Errors\StructuredError;
 use Larasell\Chronicle\Requests\Sampler;
+use LogicException;
 
-final class InvalidSampler extends ChronicleException
+final class InvalidSampler extends LogicException implements StructuredError
 {
+    use HasStructuredError;
+
     public static function doesNotImplementSampler(object $sampler): self
     {
         return self::structured(

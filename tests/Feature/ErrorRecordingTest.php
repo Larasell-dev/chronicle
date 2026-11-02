@@ -3,10 +3,10 @@
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\ChronicleException;
 use Larasell\Chronicle\Errors\HasStructuredError;
 use Larasell\Chronicle\Errors\StructuredError;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
+use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
@@ -40,14 +40,7 @@ it('records structured fields for exceptions implementing the contract', functio
     $handler = errorTestHandler();
 
     $previous = new RuntimeException('network down');
-    $e = ChronicleException::make(
-        code: 'billing.declined',
-        message: 'Payment failed',
-        why: 'Issuer declined the charge',
-        fix: 'Try a different card',
-        link: 'https://docs.example.com/errors#billing-declined',
-        previous: $previous,
-    );
+    $e = PaymentDeclined::byIssuer($previous);
 
     app(Chronicle::class)->recordError($e);
 
