@@ -17,5 +17,10 @@ return [
         'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
     ],
 
-    'sampling' => env('CHRONICLE_SAMPLING'),
+    /*
+     * The class that decides which request events Chronicle keeps, e.g.
+     * App\Logging\KeepFailuresAndSlowRequests::class. It must implement
+     * Larasell\Chronicle\Sampler. Leave it null to keep every request event.
+     */
+    'sampling' => null,
 ];
