@@ -1,6 +1,6 @@
 <?php
 
-namespace Larasell\Chronicle\Outputs;
+namespace Larasell\Chronicle\WideEvents\Outputs;
 
 use Monolog\Formatter\LineFormatter;
 

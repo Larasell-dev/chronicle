@@ -1,12 +1,11 @@
 <?php
 
-namespace Larasell\Chronicle\Requests;
+namespace Larasell\Chronicle\WideEvents\Requests;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\Errors\ErrorPayload;
-use Larasell\Chronicle\Requests\Exceptions\InvalidSampler;
+use Larasell\Chronicle\WideEvents\ErrorFields;
+use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -34,20 +33,16 @@ class RequestLogger
             ],
         ];
 
-        $payload = $this->chronicle->flattenContext($payload);
-        $payload = array_merge($payload, $this->chronicle->flattenContext(Context::all()));
-
         $exception = property_exists($response, 'exception') ? $response->exception : null;
+        $errorFields = $exception instanceof Throwable ? ErrorFields::for($exception) : [];
 
-        if ($exception instanceof Throwable) {
-            $payload = array_merge($payload, $this->chronicle->flattenContext(ErrorPayload::for($exception)));
-        }
+        $event = $this->chronicle->event('request', $errorFields, defaults: $payload);
 
-        if (! $this->shouldSample($request, $response, $payload)) {
+        if (! $this->shouldSample($request, $response, $event)) {
             return;
         }
 
-        $this->chronicle->record('request', $payload, $this->levelForStatus($response->getStatusCode()));
+        $this->chronicle->write($event, $this->levelForStatus($response->getStatusCode()));
     }
 
     protected function shouldSample(Request $request, Response $response, array $payload): bool

@@ -2,8 +2,8 @@
 
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\Outputs\Exceptions\MissingPostHogApiKey;
-use Larasell\Chronicle\Outputs\PostHogHandler;
+use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
+use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Monolog\Level;
 use OpenTelemetry\API\Logs\LoggerInterface;
 use OpenTelemetry\API\Logs\LogRecord;

@@ -1,14 +1,15 @@
 <?php
 
-namespace Larasell\Chronicle\Errors;
+namespace Larasell\Chronicle\WideEvents;
 
+use Larasell\Chronicle\Errors\StructuredError;
 use Throwable;
 
 /**
  * Builds the error fields of an event from an exception. Error events and failed request events
  * both use it, so an exception is logged the same way in either.
  */
-final class ErrorPayload
+final class ErrorFields
 {
     /**
      * @param  array<string, mixed>  $context

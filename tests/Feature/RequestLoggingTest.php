@@ -6,13 +6,13 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\Requests\Exceptions\InvalidSampler;
-use Larasell\Chronicle\Requests\Middleware\LogRequests;
-use Larasell\Chronicle\Requests\RequestLogger;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
 use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
+use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
+use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
+use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
@@ -341,6 +341,21 @@ it('accepts an explicit level in chronicle record', function () {
         ->and(chronicleEntries($handler)[0]['status'])->toBe(200);
 });
 
+it('flattens fields in chronicle record and merges context under them', function () {
+    $handler = chronicleTestHandler();
+
+    Context::add(['job' => ['id' => 7], 'order.id' => 1]);
+
+    app(Chronicle::class)->record('order.paid', ['order' => ['id' => 2, 'total' => 10]]);
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['order.id'])->toBe(2)
+        ->and($entry['order.total'])->toBe(10)
+        ->and($entry['job.id'])->toBe(7)
+        ->and($entry)->not->toHaveKey('order');
+});
+
 it('drops request logs when the sampler returns false', function () {
     $handler = chronicleTestHandler();
 
@@ -383,4 +398,4 @@ it('throws when the configured sampler does not implement the interface', functi
     config()->set('chronicle.sampling', NotASampler::class);
 
     app(RequestLogger::class)->log(request(), response('ok'), microtime(true));
-})->throws(InvalidSampler::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\Requests\Sampler');
+})->throws(InvalidSampler::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');

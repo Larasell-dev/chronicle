@@ -1,10 +1,10 @@
 <?php
 
-namespace Larasell\Chronicle\Requests\Exceptions;
+namespace Larasell\Chronicle\WideEvents\Requests\Exceptions;
 
 use Larasell\Chronicle\Errors\HasStructuredError;
 use Larasell\Chronicle\Errors\StructuredError;
-use Larasell\Chronicle\Requests\Sampler;
+use Larasell\Chronicle\WideEvents\Requests\Sampler;
 use LogicException;
 
 final class InvalidSampler extends LogicException implements StructuredError

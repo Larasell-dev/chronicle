@@ -1,6 +1,6 @@
 <?php
 
-namespace Larasell\Chronicle\Outputs\Exceptions;
+namespace Larasell\Chronicle\WideEvents\Outputs\Exceptions;
 
 use Larasell\Chronicle\Errors\HasStructuredError;
 use Larasell\Chronicle\Errors\StructuredError;

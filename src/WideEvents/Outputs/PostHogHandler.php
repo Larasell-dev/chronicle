@@ -1,8 +1,8 @@
 <?php
 
-namespace Larasell\Chronicle\Outputs;
+namespace Larasell\Chronicle\WideEvents\Outputs;
 
-use Larasell\Chronicle\Outputs\Exceptions\MissingPostHogApiKey;
+use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;
 use Monolog\LogRecord as MonologRecord;
