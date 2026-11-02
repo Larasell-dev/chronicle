@@ -68,6 +68,20 @@ it('writes one structured json entry per request', function () {
         ->and($entry['timestamp'])->toBeString();
 });
 
+it('logs the uri of routes without a name, also in a group with a name prefix', function () {
+    $handler = chronicleTestHandler();
+
+    Route::name('shop.')->group(function (): void {
+        Route::get('/products/{product}', fn () => 'ok')->middleware(LogRequests::class);
+        Route::get('/cart', fn () => 'ok')->middleware(LogRequests::class)->name('cart');
+    });
+
+    $this->get('/products/1');
+    $this->get('/cart');
+
+    expect(array_column(chronicleEntries($handler), 'route'))->toBe(['products/{product}', 'shop.cart']);
+});
+
 it('does not log when disabled', function () {
     config()->set('chronicle.enabled', false);
 
@@ -75,7 +89,7 @@ it('does not log when disabled', function () {
 
     Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
 
-    $this->get('/ping');
+    $this->get('/ping')->assertHeaderMissing('X-Request-Id');
 
     expect(file_exists(storage_path('logs/chronicle.log')))->toBeFalse();
 });
