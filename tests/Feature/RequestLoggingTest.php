@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\ChronicleException;
-use Larasell\Chronicle\Requests\LogRequests;
+use Larasell\Chronicle\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\Requests\RequestLogger;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
 use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;

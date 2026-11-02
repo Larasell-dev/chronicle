@@ -1,9 +1,10 @@
 <?php
 
-namespace Larasell\Chronicle\Requests;
+namespace Larasell\Chronicle\Requests\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Larasell\Chronicle\Requests\RequestLogger;
 use Symfony\Component\HttpFoundation\Response;
 
 class LogRequests
