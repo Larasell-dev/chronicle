@@ -1,8 +1,9 @@
 <?php
 
-namespace Larasell\Chronicle\Requests;
+namespace Larasell\Chronicle\Requests\Exceptions;
 
 use Larasell\Chronicle\ChronicleException;
+use Larasell\Chronicle\Requests\Sampler;
 
 final class InvalidSampler extends ChronicleException
 {

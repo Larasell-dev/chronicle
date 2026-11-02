@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Errors\ErrorPayload;
+use Larasell\Chronicle\Requests\Exceptions\InvalidSampler;
 use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
