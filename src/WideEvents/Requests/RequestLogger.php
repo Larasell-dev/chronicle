@@ -20,11 +20,12 @@ class RequestLogger
     {
         $payload = [
             'request' => [
+                // LogRequests' id in Context replaces this one; it only shows when the logger is called directly.
                 'id' => substr(bin2hex(random_bytes(16)), 0, 16),
             ],
             'method' => $request->getMethod(),
             'url' => $request->fullUrl(),
-            'route' => $request->route()?->getName() ?: $request->route()?->uri(),
+            'route' => $this->routeName($request),
             'status' => $response->getStatusCode(),
             'duration_ms' => round((microtime(true) - $startTime) * 1000, 2),
             'ip' => $request->ip(),
@@ -43,6 +44,18 @@ class RequestLogger
         }
 
         $this->chronicle->write($event, $this->levelForStatus($response->getStatusCode()));
+    }
+
+    /**
+     * The route's name, or its uri when it has none. A route without a name in a group with a name
+     * prefix, e.g. Route::name('shop.'), gets the prefix as its name, which names nothing.
+     */
+    protected function routeName(Request $request): ?string
+    {
+        $route = $request->route();
+        $name = $route?->getName();
+
+        return $name === null || $name === '' || str_ends_with($name, '.') ? $route?->uri() : $name;
     }
 
     protected function shouldSample(Request $request, Response $response, array $payload): bool
