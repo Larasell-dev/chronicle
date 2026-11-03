@@ -249,7 +249,7 @@ it('merges context accumulated through chronicle set into the request event', fu
         ->and($entry['cart.items'])->toBe(3);
 });
 
-it('keeps measured request fields and lets context only fill in null ones', function () {
+it('keeps measured request fields and lets context and add only fill in null ones', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
@@ -261,6 +261,7 @@ it('keeps measured request fields and lets context only fill in null ones', func
             'user.id' => 999,
             'error.code' => 'hijacked',
         ]);
+        app(Chronicle::class)->add('method', 'PATCH');
 
         throw new RuntimeException('boom');
     })->middleware(LogRequests::class);
@@ -280,6 +281,37 @@ it('keeps measured request fields and lets context only fill in null ones', func
         ->and($entry['error.code'])->toBeNull()
         ->and($entry['error.message'])->toBe('boom')
         ->and(array_key_first($entry))->toBe('timestamp');
+});
+
+it('adds fields only to the event of the current request', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    Route::get('/checkout', function () {
+        Context::add('order.id', 1);
+        app(Chronicle::class)->add('order', ['id' => 7, 'items' => 3]);
+        app(Chronicle::class)->record('checkout.started');
+
+        return 'ok';
+    })->middleware(LogRequests::class);
+
+    Route::get('/plain', fn () => 'ok')->middleware(LogRequests::class);
+
+    // Act
+    $this->get('/checkout');
+    Context::flush();
+    $this->get('/plain');
+
+    // Assert
+    [$checkout, $request, $plain] = chronicleEntries($handler);
+
+    expect($checkout['type'])->toBe('checkout.started')
+        ->and($checkout['order.id'])->toBe(1)
+        ->and($checkout)->not->toHaveKey('order.items')
+        ->and($request['type'])->toBe('request')
+        ->and($request['order.id'])->toBe(7)
+        ->and($request['order.items'])->toBe(3)
+        ->and($plain)->not->toHaveKey('order.items');
 });
 
 it('collapses nested context arrays into dotted keys and json strings', function () {

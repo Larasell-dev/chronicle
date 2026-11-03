@@ -6,6 +6,9 @@ requests of other packages. The fields Chronicle measured itself, `request.id`, 
 `route`, `status`, `duration_ms`, `ip` and `user.id`, now always win, and so do an event's
 `timestamp` and `type`. Context can still fill in a request field that is `null`.
 
+To add fields to the event of the current request without sharing them with every log line and
+queued job, use the new `Chronicle::add()`.
+
 ## Who is affected
 
 Apps that use `Context` to replace a request field that Chronicle measured, e.g. a `user.id` set
@@ -27,4 +30,12 @@ Context::add('user.id', $customer->id);
 
 // After
 Context::add('customer.id', $customer->id);
+```
+
+For fields that only belong on the request's event:
+
+```php
+use Larasell\Chronicle\WideEvents\Chronicle;
+
+app(Chronicle::class)->add('payment', ['provider' => 'stripe', 'attempts' => 2]);
 ```

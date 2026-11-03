@@ -7,6 +7,7 @@ namespace Larasell\Chronicle\WideEvents\Requests\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
+use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Requests\RequestId;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,6 +22,7 @@ class LogRequests
 
     public function __construct(
         protected RequestLogger $logger,
+        protected Chronicle $chronicle,
     ) {}
 
     /**
@@ -36,6 +38,7 @@ class LogRequests
 
         $id = RequestId::fromHeader($request->headers->get(self::HEADER));
         Context::add(RequestId::CONTEXT_KEY, $id->value);
+        $this->chronicle->beginRequest();
 
         $response = $next($request);
         $response->headers->set(self::HEADER, $id->value);
