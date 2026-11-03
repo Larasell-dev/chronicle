@@ -1,7 +1,7 @@
 # Chronicle redacts the values of secret keys
 
 Chronicle used to log every value as it was, so a `password`, `api_key` or `token` that reached an
-event through fields, `Context` or an exception's `context()` was written to the log
+event through fields, `Context`, an exception's `context()` or the query was written to the log
 file and sent to PostHog. Chronicle now logs the value of every key that contains a word from the
 new `chronicle.redact` list as `"[redacted]"`, wherever the key is in an event, lists and objects
 included. The default list covers passwords, secrets, tokens, API keys, cookies, signatures and
