@@ -190,7 +190,8 @@ with `Chronicle::add()` where your code knows it:
 - **What it called**: for each external service, the provider, `duration_ms` and attempts.
 
 Use the same key for the same thing everywhere, and put units last, like `duration_ms`. Leave out
-personal data such as names and email addresses, secrets, and request or response bodies.
+personal data such as names and email addresses, secrets, and request or response bodies. For more,
+read [Logging Sucks](https://loggingsucks.com/).
 
 ### Redact secrets
 
