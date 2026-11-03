@@ -5,6 +5,10 @@ something else, its string error code, so `new StructuredRuntimeException(code: 
 still returned `0` from `getCode()`. The argument is now named `errorCode:`, like the
 `errorCode()` getter it fills.
 
+Events also gain an `error.exception_code` field with PHP's own code, e.g. a `PDOException`'s
+SQLSTATE or an HTTP status, for every exception. It is `null` when the code is `0` or `''`.
+`error.code` is unchanged: Chronicle's string code, or `null` for exceptions that aren't structured.
+
 ## Who is affected
 
 Calls that pass `code:` to any `Structured*Exception` constructor or to `structured()` in your own
