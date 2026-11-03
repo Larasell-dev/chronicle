@@ -16,19 +16,25 @@ final readonly class RequestId
 {
     public const CONTEXT_KEY = 'request.id';
 
+    /**
+     * The most characters a client's id may have. The id is only ever visible ASCII, so this is
+     * also its byte count. Long enough for any proxy's id, short enough to log on every line.
+     */
+    private const LENGTH_MAX = 200;
+
     private function __construct(
         public string $value,
     ) {}
 
     /**
-     * The client's id when it is visible ASCII of at most 200 characters, which is what proxies
+     * The client's id when it is visible ASCII of at most LENGTH_MAX characters, which is what proxies
      * send and safe to log and echo back. Any other value, or none, gets a new UUIDv7.
      *
      * @internal
      */
     public static function fromHeader(?string $header): self
     {
-        if ($header === null || preg_match('/^[\x21-\x7E]{1,200}$/D', $header) !== 1) {
+        if ($header === null || preg_match('/^[\x21-\x7E]{1,'.self::LENGTH_MAX.'}$/D', $header) !== 1) {
             return new self(Str::uuid7()->toString());
         }
 

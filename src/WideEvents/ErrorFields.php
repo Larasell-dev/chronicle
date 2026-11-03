@@ -49,9 +49,7 @@ final class ErrorFields
             return [];
         }
 
-        return array_map(
-            fn ($value) => is_string($value) && strlen($value) > 1000 ? substr($value, 0, 1000) : $value,
-            $context,
-        );
+        // Chronicle::event() bounds every value of an event, these included.
+        return $context;
     }
 }

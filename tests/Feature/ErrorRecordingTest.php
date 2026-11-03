@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
@@ -161,7 +160,7 @@ it('does not merge context from exceptions without a context method', function (
     expect(chronicleEntries($handler)[0])->not->toHaveKeys(['correlation_id']);
 });
 
-it('truncates long context values', function () {
+it('truncates long context values on a character boundary', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
@@ -172,7 +171,8 @@ it('truncates long context values', function () {
          */
         public function context(): array
         {
-            return ['raw' => str_repeat('a', 1500)];
+            // 1 + 600 × 2 = 1,201 bytes. Byte 1,000 is the first half of an ä.
+            return ['raw' => 'a'.str_repeat('ä', 600)];
         }
     };
 
@@ -180,7 +180,7 @@ it('truncates long context values', function () {
     app(Chronicle::class)->recordError($exception);
 
     // Assert
-    expect(strlen(Arr::string(chronicleEntries($handler)[0], 'raw')))->toBe(1000);
+    expect(chronicleEntries($handler)[0]['raw'])->toBe('a'.str_repeat('ä', 499));
 });
 
 it('accepts an explicit level in record error', function () {
