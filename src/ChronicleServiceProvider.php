@@ -288,7 +288,14 @@ class ChronicleServiceProvider extends ServiceProvider
             // JSON has no NAN or INF, so every event would report the field as unencodable.
             if (is_float($value)) {
                 if (! is_finite($value)) {
-                    throw $this->invalidFields("chronicle.fields must map [{$key}] to a finite number, found {$value}");
+                    // Named, not interpolated: PHP 8.5 warns when it turns NAN into a string.
+                    $name = match (true) {
+                        is_nan($value) => 'NAN',
+                        $value > 0 => 'INF',
+                        default => '-INF',
+                    };
+
+                    throw $this->invalidFields("chronicle.fields must map [{$key}] to a finite number, found {$name}");
                 }
             }
         }
