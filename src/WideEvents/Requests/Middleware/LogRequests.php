@@ -34,17 +34,25 @@ class LogRequests
             return $next($request);
         }
 
-        $startedAtNanoseconds = hrtime(true);
+        // Added twice, e.g. by a package too: the outer one already logs this request.
+        if (! $this->chronicle->beginRequest()) {
+            return $next($request);
+        }
 
-        $id = RequestId::fromHeader($request->headers->get(self::HEADER));
-        Context::add(RequestId::CONTEXT_KEY, $id->value);
-        $this->chronicle->beginRequest();
+        try {
+            $startedAtNanoseconds = hrtime(true);
 
-        $response = $next($request);
-        $response->headers->set(self::HEADER, $id->value);
+            $id = RequestId::fromHeader($request->headers->get(self::HEADER));
+            Context::add(RequestId::CONTEXT_KEY, $id->value);
 
-        $this->logger->log($request, $response, $startedAtNanoseconds);
+            $response = $next($request);
+            $response->headers->set(self::HEADER, $id->value);
 
-        return $response;
+            $this->logger->log($request, $response, $startedAtNanoseconds);
+
+            return $response;
+        } finally {
+            $this->chronicle->endRequest();
+        }
     }
 }
