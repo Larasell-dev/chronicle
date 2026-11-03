@@ -40,7 +40,7 @@ class ChronicleServiceProvider extends ServiceProvider
 
         $this->app->singleton(
             Chronicle::class,
-            fn (Container $app): Chronicle => new Chronicle($this->redactedKeys(), $this->redactor($app)),
+            fn (Container $app): Chronicle => new Chronicle($this->redactedKeys(), $this->redactor($app), $this->globalFields()),
         );
         // One per process, so a failed check is reported once, not on every event.
         $this->app->singleton(Assert::class);
@@ -189,6 +189,203 @@ class ChronicleServiceProvider extends ServiceProvider
         return $redactor;
     }
 
+    /**
+     * The fields of every event, named as OpenTelemetry's resource attributes, read once at boot
+     * like the channels: Chronicle's own, then chronicle.fields. Anything malformed stops the app
+     * at boot, rather than silently logging events that can't be told apart.
+     *
+     * @return array<string, scalar>
+     */
+    protected function globalFields(): array
+    {
+        // Null ones included, so the app can't set service.version through fields either.
+        $chronicleFields = [
+            'service.name' => $this->optionalString('service') ?? Config::string('app.name', 'laravel'),
+            'service.version' => $this->optionalString('release'),
+            'deployment.environment' => $this->optionalString('environment') ?? Config::string('app.env', 'production'),
+            'host.name' => $this->hostName(),
+            'process.runtime.version' => PHP_VERSION,
+        ];
+        $appFields = $this->appFields();
+
+        foreach (array_keys($appFields) as $key) {
+            if (array_key_exists($key, $chronicleFields)) {
+                throw $this->invalidFields("chronicle.fields sets [{$key}], which Chronicle sets itself");
+            }
+        }
+
+        $chronicleFields = array_filter($chronicleFields, fn (?string $value): bool => $value !== null);
+        $fieldCount = count($chronicleFields) + count($appFields);
+
+        // Every event carries them, so they take room from the fields that describe the event.
+        if ($fieldCount > Chronicle::GLOBAL_FIELDS_MAX) {
+            throw $this->invalidFields("Chronicle has {$fieldCount} global fields, more than ".Chronicle::GLOBAL_FIELDS_MAX);
+        }
+
+        return [...$chronicleFields, ...$appFields];
+    }
+
+    /**
+     * host.name: CHRONICLE_HOST, or else the machine's name. An empty CHRONICLE_HOST= turns it
+     * off, so unlike the other options, empty doesn't mean unset here.
+     */
+    protected function hostName(): ?string
+    {
+        if (config('chronicle.host') === '') {
+            return null;
+        }
+
+        $host = $this->optionalString('host');
+
+        if ($host !== null) {
+            return $host;
+        }
+
+        $machineName = gethostname();
+
+        // An operating error, not a bug: the event is still worth writing without the host.
+        if ($machineName === false) {
+            return null;
+        }
+
+        if ($machineName === '') {
+            return null;
+        }
+
+        return $machineName;
+    }
+
+    /**
+     * chronicle.fields, validated: an array, or a string as CHRONICLE_FIELDS sets it.
+     *
+     * @return array<string, scalar>
+     */
+    protected function appFields(): array
+    {
+        $configured = config('chronicle.fields') ?? [];
+
+        if (is_string($configured)) {
+            return $this->parsedFields($configured);
+        }
+
+        if (! is_array($configured)) {
+            throw $this->invalidFields('chronicle.fields must be an array or a string of key=value pairs, found '.get_debug_type($configured));
+        }
+
+        foreach ($configured as $key => $value) {
+            if (! is_string($key)) {
+                throw $this->invalidFields("chronicle.fields must map keys to values, found the key [{$key}]");
+            }
+
+            if (trim($key) === '') {
+                throw $this->invalidFields('chronicle.fields has an empty key');
+            }
+
+            if (! is_scalar($value)) {
+                throw $this->invalidFields('chronicle.fields must map each key to a string, number or bool, found '.get_debug_type($value)." for [{$key}]");
+            }
+
+            // JSON has no NAN or INF, so every event would report the field as unencodable.
+            if (is_float($value)) {
+                if (! is_finite($value)) {
+                    throw $this->invalidFields("chronicle.fields must map [{$key}] to a finite number, found {$value}");
+                }
+            }
+        }
+
+        return $configured;
+    }
+
+    /**
+     * The fields of a string in OpenTelemetry's format, as OTEL_RESOURCE_ATTRIBUTES has them:
+     * key=value pairs separated by commas, with spaces around them ignored and the values
+     * percent-decoded, so a value can hold a comma as %2C.
+     *
+     * @return array<string, string>
+     */
+    protected function parsedFields(string $fields): array
+    {
+        if (trim($fields) === '') {
+            return [];
+        }
+
+        $pairs = explode(',', $fields);
+
+        // Checked before parsing, so the loop below is bounded too.
+        if (count($pairs) > Chronicle::GLOBAL_FIELDS_MAX) {
+            throw $this->invalidFields('CHRONICLE_FIELDS has '.count($pairs).' fields, more than '.Chronicle::GLOBAL_FIELDS_MAX);
+        }
+
+        $parsed = [];
+
+        foreach ($pairs as $pair) {
+            $malformed = 'CHRONICLE_FIELDS must be key=value pairs separated by commas, found ['.trim($pair).']';
+            $separatorIndex = strpos($pair, '=');
+
+            if ($separatorIndex === false) {
+                throw $this->invalidFields($malformed);
+            }
+
+            $key = trim(substr($pair, 0, $separatorIndex));
+            $value = trim(substr($pair, $separatorIndex + 1));
+
+            if ($key === '') {
+                throw $this->invalidFields($malformed);
+            }
+
+            if ($value === '') {
+                throw $this->invalidFields($malformed);
+            }
+
+            // A later pair would silently replace the earlier one.
+            if (array_key_exists($key, $parsed)) {
+                throw $this->invalidFields("CHRONICLE_FIELDS sets [{$key}] twice");
+            }
+
+            $parsed[$key] = rawurldecode($value);
+        }
+
+        return $parsed;
+    }
+
+    protected function invalidFields(string $message): StructuredInvalidArgumentException
+    {
+        return new StructuredInvalidArgumentException(
+            errorCode: 'chronicle.fields.invalid',
+            message: $message,
+            why: 'Chronicle adds the global fields to every event, so it reads them once at boot',
+            fix: 'Set CHRONICLE_FIELDS to e.g. region=eu,team=shop, or fields in config/chronicle.php to e.g. [\'region\' => \'eu\']',
+        );
+    }
+
+    /**
+     * A string option of config/chronicle.php, or null when it is unset or empty, so an empty
+     * CHRONICLE_RELEASE= is the same as none.
+     */
+    protected function optionalString(string $key): ?string
+    {
+        $value = config("chronicle.{$key}");
+
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw new StructuredInvalidArgumentException(
+                errorCode: "chronicle.{$key}.invalid",
+                message: "chronicle.{$key} must be a string, found ".get_debug_type($value),
+                why: 'Chronicle adds it to every event as a global field',
+                fix: "Set {$key} in config/chronicle.php to a string, or leave it null",
+            );
+        }
+
+        if ($value === '') {
+            return null;
+        }
+
+        return $value;
+    }
+
     protected function registerLoggingDrivers(): void
     {
         $this->app->extend('log', function (LogManager $logger): LogManager {
@@ -209,7 +406,7 @@ class ChronicleServiceProvider extends ServiceProvider
                     host: Arr::string($config, 'host', PostHogHandler::HOST_DEFAULT),
                     apiKey: $apiKey,
                     http: $app->make(HttpFactory::class),
-                    service: Config::string('app.name', 'laravel'),
+                    resource: $app->make(Chronicle::class)->loggedGlobalFields(),
                     scope: Arr::string($config, 'scope', PostHogHandler::SCOPE_DEFAULT),
                     level: Level::fromName($level),
                     debug: $app->hasDebugModeEnabled(),

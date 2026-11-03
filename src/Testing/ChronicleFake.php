@@ -36,7 +36,7 @@ final class ChronicleFake extends Chronicle
 
     public function __construct(Chronicle $chronicle)
     {
-        parent::__construct($chronicle->redactedKeys, $chronicle->redactor);
+        parent::__construct($chronicle->redactedKeys, $chronicle->redactor, $chronicle->globalFields);
     }
 
     public function add(string $key, mixed $value): void

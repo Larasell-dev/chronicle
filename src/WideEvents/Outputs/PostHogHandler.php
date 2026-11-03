@@ -76,18 +76,29 @@ class PostHogHandler extends AbstractProcessingHandler
     /** Events dropped for a missing API key since the last flush(), which reports them. */
     private int $droppedWithoutApiKeyCount = 0;
 
+    /**
+     * @param  array<string, scalar|null>  $resource
+     */
     public function __construct(
         protected string $host,
         protected string $apiKey,
         protected HttpFactory $http,
-        // OTLP's service.name, which PostHog groups and filters logs by.
-        protected string $service,
+        // The OTLP resource attributes: Chronicle's global fields, such as service.name, which
+        // PostHog groups and filters logs by.
+        protected array $resource,
         protected string $scope,
         int|string|Level $level,
         bool $bubble = true,
         protected bool $debug = false,
     ) {
         parent::__construct($level, $bubble);
+
+        // The other side of Chronicle's GLOBAL_FIELDS_MAX: the resource goes out with every batch.
+        Assert::that(
+            count($resource) <= Chronicle::GLOBAL_FIELDS_MAX,
+            'chronicle.assert.global-fields',
+            'The PostHog resource holds '.count($resource).' attributes, more than GLOBAL_FIELDS_MAX ('.Chronicle::GLOBAL_FIELDS_MAX.')',
+        );
     }
 
     protected function write(LogRecord $record): void
@@ -290,8 +301,9 @@ class PostHogHandler extends AbstractProcessingHandler
     }
 
     /**
-     * The event's fields as attributes. posthogDistinctId and sessionId are the names PostHog
-     * links a log line to a person and a session replay by.
+     * The event's fields as attributes. A global field the resource already holds is left out,
+     * unless the event gives it a value of its own, e.g. from Context. posthogDistinctId and
+     * sessionId are the names PostHog links a log line to a person and a session replay by.
      *
      * @param  array<mixed>  $entry
      * @return array<scalar|null>
@@ -300,6 +312,7 @@ class PostHogHandler extends AbstractProcessingHandler
     {
         $attributes = collect($entry)
             ->except(['timestamp', 'type'])
+            ->reject(fn (mixed $value, int|string $key): bool => $this->inResource($key, $value))
             ->map(function ($value) {
                 if ($value === null) {
                     return null;
@@ -325,6 +338,18 @@ class PostHogHandler extends AbstractProcessingHandler
         }
 
         return $attributes;
+    }
+
+    /**
+     * Whether the resource already holds the field with this value, so the record needn't.
+     */
+    private function inResource(int|string $key, mixed $value): bool
+    {
+        if (! array_key_exists($key, $this->resource)) {
+            return false;
+        }
+
+        return $this->resource[$key] === $value;
     }
 
     /**
@@ -366,7 +391,7 @@ class PostHogHandler extends AbstractProcessingHandler
         return [
             'resourceLogs' => [[
                 'resource' => [
-                    'attributes' => [['key' => 'service.name', 'value' => ['stringValue' => $this->service]]],
+                    'attributes' => $this->otlpAttributes($this->resource),
                 ],
                 'scopeLogs' => [[
                     'scope' => ['name' => $this->scope],

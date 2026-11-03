@@ -674,14 +674,14 @@ it('drops context fields first once an event has more than 256 fields', function
     // Assert
     $entry = chronicleEntries($handler)[0];
 
-    // 2 header + 1,000 context + 1 field = 1,003. Keeping 256 with the count means dropping
-    // 1,003 - 256 + 1 = 748 fields, all of them the latest context fields.
+    // 2 header + 4 global + 1,000 context + 1 field = 1,007. Keeping 256 with the count means
+    // dropping 1,007 - 256 + 1 = 752 fields, all of them the latest context fields.
     expect($entry)->toHaveCount(256)
-        ->and($entry['chronicle.fields_dropped'])->toBe(748)
+        ->and($entry['chronicle.fields_dropped'])->toBe(752)
         ->and($entry['type'])->toBe('wide')
         ->and($entry['order.id'])->toBe(7)
-        ->and($entry['context.f251'])->toBe(251)
-        ->and($entry)->not->toHaveKey('context.f252');
+        ->and($entry['context.f247'])->toBe(247)
+        ->and($entry)->not->toHaveKey('context.f248');
 });
 
 function unencodableValue(string $kind): mixed
@@ -813,10 +813,10 @@ it('counts the unencodable report towards the field limit', function () {
     // Assert
     $entry = chronicleEntries($handler)[0];
 
-    // 2 header + 1,000 context + 1 field = 1,003. Keeping 256 with the dropped count and the
-    // report means dropping 1,003 - 256 + 2 = 749 fields.
+    // 2 header + 4 global + 1,000 context + 1 field = 1,007. Keeping 256 with the dropped count
+    // and the report means dropping 1,007 - 256 + 2 = 753 fields.
     expect($entry)->toHaveCount(256)
-        ->and($entry['chronicle.fields_dropped'])->toBe(749)
+        ->and($entry['chronicle.fields_dropped'])->toBe(753)
         ->and(chronicleEntry(Arr::string($entry, 'chronicle.unencodable')))->toBe(['score' => 'NAN']);
 });
 
