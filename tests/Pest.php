@@ -51,3 +51,12 @@ function chronicleEntries(TestHandler $handler): array
 {
     return array_map(fn (LogRecord $record): array => chronicleEntry($record->message), $handler->getRecords());
 }
+
+/**
+ * The bytes a string takes in a Chronicle log line, between its quotes: escapes included, unicode
+ * and slashes unescaped, as Chronicle writes it.
+ */
+function lineBytes(string $value): int
+{
+    return strlen(json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)) - 2;
+}
