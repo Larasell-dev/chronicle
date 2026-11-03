@@ -59,15 +59,8 @@ install_composer() {
 }
 
 install_dependencies() {
-  # composer.lock is gitignored, so a stale snapshot may carry a lock that no
-  # longer matches composer.json. Re-resolve in that case instead of installing
-  # outdated packages.
-  if [ -f composer.lock ] &&
-    ! composer validate --no-check-all --no-check-publish --no-check-version >/dev/null 2>&1; then
-    composer update --prefer-dist --no-interaction --no-progress
-  else
-    composer install --prefer-dist --no-interaction --no-progress
-  fi
+  # composer.lock is committed, so every orb installs the same versions as CI.
+  composer install --prefer-dist --no-interaction --no-progress
 }
 
 step "Install PHP $php_version" install_php
