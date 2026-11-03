@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use JsonException;
 use JsonSerializable;
+use Larasell\Chronicle\Support\Assert;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Psr\Log\LoggerInterface;
 use stdClass;
@@ -42,6 +43,13 @@ class Chronicle
     private const FIELDS_MAX = 256;
 
     /**
+     * Maps the error code of each failed assertion to its message, on an event built outside
+     * debug mode. It and its _count are the only fields allowed beyond FIELDS_MAX: they appear only
+     * when Chronicle has a bug, and reserving room for them would cost every event a field.
+     */
+    private const ASSERTION_FAILED = 'chronicle.assertion_failed';
+
+    /**
      * Records a wide event of the given type. The fields you pass win over fields in Context.
      *
      * @param  array<mixed>  $fields
@@ -70,14 +78,16 @@ class Chronicle
      *
      * @param  array<mixed>  $errorFields
      * @param  Closure(array<string, mixed>): bool  $shouldLog  Whether to write the finished event.
+     * @param  array<string, string>  $assertionFailures  The caller's failed assertions, error code to message.
      */
     public function recordRequest(
         EventDefaults $requestFields,
         array $errorFields,
         Level $level,
         Closure $shouldLog,
+        array $assertionFailures = [],
     ): void {
-        $event = $this->event('request', $errorFields, $requestFields);
+        $event = $this->event('request', $errorFields, $requestFields, $assertionFailures);
 
         if ($shouldLog($event) === false) {
             return;
@@ -101,13 +111,18 @@ class Chronicle
      * That map is one JSON value like any other, so it obeys VALUE_BYTES_MAX, adding
      * chronicle.unencodable_count when it is cut. Both count towards FIELDS_MAX.
      *
+     * An assertion that fails while the event is built, outside debug mode, is recorded in
+     * chronicle.assertion_failed, together with the $assertionFailures of the caller.
+     *
      * @param  array<mixed>  $fields
+     * @param  array<string, string>  $assertionFailures  The caller's failed assertions, error code to message.
      * @return array<string, mixed>
      */
     private function event(
         string $type,
         array $fields,
         ?EventDefaults $defaults = null,
+        array $assertionFailures = [],
     ): array {
         $header = [
             'timestamp' => now()->toIso8601String(),
@@ -136,7 +151,95 @@ class Chronicle
             $event[$key] = $value->replacement;
         }
 
-        return array_merge($event, $this->unencodableFields($unencodable));
+        $event = array_merge($event, $this->unencodableFields($unencodable));
+
+        // The other side of the promises flatten() and eventWithoutOverflow() make, checked on
+        // the finished event: no marker, array or object may be left by now.
+        $failures = $this->check(
+            $assertionFailures,
+            count($event) <= self::FIELDS_MAX,
+            'chronicle.assert.field-limit',
+            'event() built '.count($event).' fields, more than FIELDS_MAX ('.self::FIELDS_MAX.')',
+        );
+        $unbounded = $this->firstUnboundedField($event);
+        $failures = $this->check($failures, $unbounded === null, 'chronicle.assert.value-bounds', "event() built {$unbounded}");
+
+        return array_merge($event, $this->reasonFields(self::ASSERTION_FAILED, $failures));
+    }
+
+    /**
+     * Asserts a guarantee of the event being built. Outside debug mode, where a failed assertion
+     * doesn't throw, the failure is added to $failures, so the event can say it was built wrong.
+     *
+     * @param  array<string, string>  $failures
+     * @return array<string, string>
+     */
+    private function check(array $failures, bool $condition, string $errorCode, string $message): array
+    {
+        if (Assert::that($condition, $errorCode, $message)) {
+            return $failures;
+        }
+
+        $failures[$errorCode] = $message;
+
+        return $failures;
+    }
+
+    /**
+     * The first field that breaks the bounds of an event, described, or null when every field
+     * keeps them: a key of at most KEY_BYTES_MAX bytes, and a value that is null, a bool, an int,
+     * a float json_encode can encode, or a string of at most VALUE_BYTES_MAX bytes.
+     *
+     * @param  array<mixed>  $fields
+     */
+    private function firstUnboundedField(array $fields): ?string
+    {
+        foreach ($fields as $key => $value) {
+            $keyBytes = strlen((string) $key);
+
+            if ($keyBytes > self::KEY_BYTES_MAX) {
+                return "a key of {$keyBytes} bytes, more than KEY_BYTES_MAX (".self::KEY_BYTES_MAX.')';
+            }
+
+            $problem = $this->unboundedValue($value);
+
+            if ($problem !== null) {
+                return "{$key}: {$problem}";
+            }
+        }
+
+        return null;
+    }
+
+    private function unboundedValue(mixed $value): ?string
+    {
+        if (is_string($value)) {
+            $valueBytes = strlen($value);
+
+            if ($valueBytes > self::VALUE_BYTES_MAX) {
+                return "a string of {$valueBytes} bytes, more than VALUE_BYTES_MAX (".self::VALUE_BYTES_MAX.')';
+            }
+
+            return null;
+        }
+
+        if (is_float($value)) {
+            if (is_finite($value)) {
+                return null;
+            }
+
+            return 'NAN or INF, which json_encode can\'t encode';
+        }
+
+        if (is_scalar($value)) {
+            return null;
+        }
+
+        if ($value === null) {
+            return null;
+        }
+
+        return 'a '.get_debug_type($value).", which isn't a plain value";
     }
 
     /**
@@ -168,6 +271,12 @@ class Chronicle
         }
 
         [$json, $keptCount] = $this->encodeArray($reasons);
+
+        Assert::that(
+            $keptCount <= count($reasons),
+            'chronicle.assert.array-elements',
+            "encodeArray() kept {$keptCount} of ".count($reasons).' reasons',
+        );
 
         if ($keptCount < count($reasons)) {
             return [$field => $json, $field.'_count' => count($reasons)];
@@ -209,6 +318,14 @@ class Chronicle
      */
     private function write(array $event, Level $level): void
     {
+        // The other side of event()'s field limit. chronicle.assertion_failed may go beyond it.
+        $fieldCount = count(array_diff_key($event, array_flip([self::ASSERTION_FAILED, self::ASSERTION_FAILED.'_count'])));
+        Assert::that(
+            $fieldCount <= self::FIELDS_MAX,
+            'chronicle.assert.field-limit',
+            "write() got {$fieldCount} fields, more than FIELDS_MAX (".self::FIELDS_MAX.')',
+        );
+
         if (! config('chronicle.enabled')) {
             return;
         }
@@ -230,7 +347,12 @@ class Chronicle
      */
     private function encodeEvent(array $event): string
     {
-        return $this->encodeLine($event);
+        $line = $this->encodeLine($event);
+
+        Assert::that(str_starts_with($line, '{'), 'chronicle.assert.event-json-object', "encodeEvent() built a line that isn't a JSON object");
+        Assert::that(! str_contains($line, "\n"), 'chronicle.assert.event-one-line', 'encodeEvent() built an event with a line break in it');
+
+        return $line;
     }
 
     /**
@@ -318,6 +440,11 @@ class Chronicle
             if ($this->encodesWhole($value, $depth)) {
                 [$json, $keptCount, $reason] = $this->encodeArray($value);
                 $flattened[$key] = $reason === null ? $json : new UnencodableValue($reason, $json);
+                Assert::that(
+                    $keptCount <= count($value),
+                    'chronicle.assert.array-elements',
+                    "encodeArray() kept {$keptCount} of ".count($value)." elements of {$key}",
+                );
 
                 // The JSON only holds the elements that fit, so the full count says how many are missing.
                 if ($keptCount < count($value)) {
@@ -331,6 +458,13 @@ class Chronicle
                 $stack[] = [$path.'.'.$childKey, $child, $depth + 1];
             }
         }
+
+        // A marker stands for its replacement, which is what event() writes.
+        $unbounded = $this->firstUnboundedField(array_map(
+            fn (mixed $value): mixed => $value instanceof UnencodableValue ? $value->replacement : $value,
+            $flattened,
+        ));
+        Assert::that($unbounded === null, 'chronicle.assert.value-bounds', "flatten() built {$unbounded}");
 
         return $flattened;
     }
@@ -425,6 +559,17 @@ class Chronicle
         }
 
         $json = $isList ? '['.implode(',', $parts).']' : '{'.implode(',', $parts).'}';
+
+        Assert::that(
+            strlen($json) <= self::VALUE_BYTES_MAX,
+            'chronicle.assert.value-bounds',
+            'encodeArray() built '.strlen($json).' bytes of JSON, more than VALUE_BYTES_MAX ('.self::VALUE_BYTES_MAX.')',
+        );
+        Assert::that(
+            count($parts) <= count($array),
+            'chronicle.assert.array-elements',
+            'encodeArray() kept '.count($parts).' of '.count($array).' elements',
+        );
 
         if ($failures === []) {
             return [$json, count($parts), null];

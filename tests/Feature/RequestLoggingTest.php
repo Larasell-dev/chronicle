@@ -171,6 +171,11 @@ it('measures the duration in milliseconds from an hrtime start', function () {
     expect(chronicleEntries($handler)[0]['duration_ms'])->toBeGreaterThanOrEqual(25.0)->toBeLessThan(1000.0);
 });
 
+it('throws instead of logging a negative duration', function () {
+    // Act & Assert
+    app(RequestLogger::class)->log(Request::create('/cart'), response('ok'), hrtime(true) + 5_000_000_000);
+})->throws(StructuredLogicException::class, 'in the future');
+
 it('merges the exception from a json error response', function () {
     // Arrange
     $handler = chronicleTestHandler();

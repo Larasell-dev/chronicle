@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Larasell\Chronicle\Exceptions\StructuredLogicException;
+use Larasell\Chronicle\Support\Assert;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
@@ -33,6 +34,8 @@ class ChronicleServiceProvider extends ServiceProvider
         $this->registerLoggingDrivers();
 
         $this->app->singleton(Chronicle::class);
+        // One per process, so a failed check is reported once, not on every event.
+        $this->app->singleton(Assert::class);
         $this->app->singleton(
             RequestLogger::class,
             fn (Container $app): RequestLogger => new RequestLogger($app->make(Chronicle::class), $this->sampler($app)),

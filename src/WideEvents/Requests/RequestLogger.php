@@ -6,6 +6,7 @@ namespace Larasell\Chronicle\WideEvents\Requests;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
+use Larasell\Chronicle\Support\Assert;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Larasell\Chronicle\WideEvents\ErrorFields;
@@ -33,6 +34,13 @@ class RequestLogger
     {
         $durationNanoseconds = hrtime(true) - $startedAtNanoseconds;
 
+        // A monotonic clock can't run backwards, so only a start that isn't from hrtime(true) can
+        // make this negative: a bug, never a duration to log. Outside debug mode the request still
+        // gets its event, without a duration, and the event says why.
+        $durationMessage = "The request's start lies ".(-$durationNanoseconds).' ns in the future: RequestLogger::log() needs hrtime(true) from the start of the request';
+        $durationKnown = Assert::that($durationNanoseconds >= 0, 'chronicle.request.negative-duration', $durationMessage);
+        $assertionFailures = $durationKnown ? [] : ['chronicle.request.negative-duration' => $durationMessage];
+
         $user = $request->user();
         $requestFields = [
             'request' => [
@@ -44,7 +52,7 @@ class RequestLogger
             'url' => $request->fullUrl(),
             'route' => $this->routeName($request),
             'status' => $response->getStatusCode(),
-            'duration_ms' => round($durationNanoseconds / 1_000_000, 2),
+            'duration_ms' => $durationKnown ? round($durationNanoseconds / 1_000_000, 2) : null,
             'ip' => $request->ip(),
             'user' => [
                 'id' => $user instanceof Authenticatable ? $user->getAuthIdentifier() : null,
@@ -60,6 +68,7 @@ class RequestLogger
             level: $this->levelForStatus($response->getStatusCode()),
             // Without a sampler every request event is kept.
             shouldLog: fn (array $event): bool => $this->sampler?->shouldLog($request, $response, $event) ?? true,
+            assertionFailures: $assertionFailures,
         );
     }
 
