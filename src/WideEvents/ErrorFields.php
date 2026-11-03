@@ -16,20 +16,20 @@ use Throwable;
 final class ErrorFields
 {
     /**
-     * @param  array<mixed>  $context
+     * @param  array<mixed>  $fields
      * @return array<mixed>
      */
-    public static function for(Throwable $e, array $context = []): array
+    public static function for(Throwable $exception, array $fields = []): array
     {
-        $structured = $e instanceof StructuredException;
+        $structured = $exception instanceof StructuredException;
 
-        return array_merge(self::exceptionContext($e), $context, [
+        return array_merge(self::exceptionContext($exception), $fields, [
             'error' => [
-                'code' => $structured ? $e->errorCode() : null,
-                'message' => $e->getMessage(),
-                'why' => $structured ? $e->errorWhy() : null,
-                'fix' => $structured ? $e->errorFix() : null,
-                'link' => $structured ? $e->errorLink() : null,
+                'code' => $structured ? $exception->errorCode() : null,
+                'message' => $exception->getMessage(),
+                'why' => $structured ? $exception->errorWhy() : null,
+                'fix' => $structured ? $exception->errorFix() : null,
+                'link' => $structured ? $exception->errorLink() : null,
             ],
         ]);
     }
@@ -37,13 +37,13 @@ final class ErrorFields
     /**
      * @return array<mixed>
      */
-    private static function exceptionContext(Throwable $e): array
+    private static function exceptionContext(Throwable $exception): array
     {
-        if (! method_exists($e, 'context')) {
+        if (! method_exists($exception, 'context')) {
             return [];
         }
 
-        $context = $e->context();
+        $context = $exception->context();
 
         if (! is_array($context)) {
             return [];

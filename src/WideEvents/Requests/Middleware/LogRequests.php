@@ -32,7 +32,7 @@ class LogRequests
             return $next($request);
         }
 
-        $startTime = microtime(true);
+        $startedAtSeconds = microtime(true);
 
         $id = RequestId::fromHeader($request->headers->get(self::HEADER));
         Context::add(RequestId::CONTEXT_KEY, $id->value);
@@ -40,7 +40,7 @@ class LogRequests
         $response = $next($request);
         $response->headers->set(self::HEADER, $id->value);
 
-        $this->logger->log($request, $response, $startTime);
+        $this->logger->log($request, $response, $startedAtSeconds);
 
         return $response;
     }
