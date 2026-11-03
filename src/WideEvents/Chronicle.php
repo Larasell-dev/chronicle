@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle\WideEvents;
 
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use JsonException;
+use JsonSerializable;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Psr\Log\LoggerInterface;
+use stdClass;
 use Throwable;
 
 class Chronicle
@@ -190,9 +193,9 @@ class Chronicle
     }
 
     /**
-     * Encodes an event as one JSON line. event() already replaced every value json_encode can't
-     * encode by null, so this can only fail through a bug in Chronicle itself, or an object whose
-     * jsonSerialize() fails only the second time. Then it encodes a small event that keeps the type and timestamp and says
+     * Encodes an event as one JSON line. event() already replaced every object by plain data and
+     * every value json_encode can't encode by null, so this can only fail through a bug in
+     * Chronicle itself. Then it encodes a small event that keeps the type and timestamp and says
      * what failed, so the failure is logged rather than lost.
      *
      * Either way the result is one JSON object on one line. The file channel writes it with
@@ -239,8 +242,10 @@ class Chronicle
     /**
      * Flattens nested arrays into dotted keys, in the order they appear, a later key winning over
      * an earlier one with the same name. Lists, and arrays below DEPTH_MAX, are stored as one JSON
-     * value, since their positions make poor keys. Strings are cut to VALUE_BYTES_MAX. A value
-     * json_encode can't encode is stored as an UnencodableValue, for event() to report.
+     * value, since their positions make poor keys. Strings are cut to VALUE_BYTES_MAX. Objects are
+     * replaced by their JSON form first, so they are bounded like the strings and arrays they
+     * become. A value json_encode can't encode is stored as an UnencodableValue, for event() to
+     * report.
      *
      * Walks with an explicit stack rather than recursion, so nesting depth costs no call stack.
      * Children are pushed in reverse, so they pop, and are flattened, in their original order.
@@ -260,6 +265,18 @@ class Chronicle
         while ($stack !== []) {
             [$path, $value, $depth] = array_pop($stack);
             $key = mb_strcut($path, 0, self::KEY_BYTES_MAX, 'UTF-8');
+
+            // An object is replaced by its JSON form, which the branches below then bound like
+            // any other string or array.
+            if (is_object($value)) {
+                [$value, $reason] = $this->jsonForm($value);
+
+                if ($reason !== null) {
+                    $flattened[$key] = new UnencodableValue($reason, null);
+
+                    continue;
+                }
+            }
 
             if (is_string($value)) {
                 $flattened[$key] = mb_strcut($value, 0, self::VALUE_BYTES_MAX, 'UTF-8');
@@ -292,6 +309,44 @@ class Chronicle
         }
 
         return $flattened;
+    }
+
+    /**
+     * An object as plain data: what jsonSerialize() or toArray() returns, or the properties of a
+     * stdClass. Any other object, or one of those methods returning an object, goes through
+     * json_encode and back, so flatten() never stores an object and every value obeys the limits.
+     *
+     * @return array{mixed, ?string} The object as plain data, or null and why it has none.
+     */
+    private function jsonForm(object $object): array
+    {
+        try {
+            $form = match (true) {
+                $object instanceof JsonSerializable => $object->jsonSerialize(),
+                $object instanceof Arrayable => $object->toArray(),
+                default => $object,
+            };
+        } catch (Throwable $throwable) {
+            $method = $object instanceof JsonSerializable ? 'jsonSerialize()' : 'toArray()';
+
+            return [null, get_debug_type($object).": {$method} threw ".$throwable::class];
+        }
+
+        if ($form instanceof stdClass) {
+            return [get_object_vars($form), null];
+        }
+
+        if (! is_object($form)) {
+            return [$form, null];
+        }
+
+        [$json, $reason] = $this->encodeElement($form);
+
+        if ($reason !== null) {
+            return [null, $reason];
+        }
+
+        return [json_decode($json, true, flags: JSON_THROW_ON_ERROR), null];
     }
 
     /**
