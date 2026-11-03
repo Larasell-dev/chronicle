@@ -7,6 +7,7 @@ namespace Larasell\Chronicle\WideEvents\Outputs;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use JsonException;
+use Larasell\Chronicle\Support\Assert;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Outputs\Exceptions\InvalidChronicleEvent;
 use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
@@ -118,6 +119,7 @@ class PostHogHandler extends AbstractProcessingHandler
 
         $this->batch[] = $this->logRecord($entry, $record);
         $this->batchBytes += $entryBytes;
+        $this->assertBatchBounds(count($this->batch), $this->batchBytes);
 
         if (count($this->batch) === self::BATCH_EVENTS_MAX) {
             $this->flush();
@@ -140,6 +142,7 @@ class PostHogHandler extends AbstractProcessingHandler
         }
 
         $batch = $this->batch;
+        $this->assertBatchBounds(count($batch), $this->batchBytes);
         $this->batch = [];
         $this->batchBytes = 0;
 
@@ -176,6 +179,28 @@ class PostHogHandler extends AbstractProcessingHandler
         }
 
         parent::close();
+    }
+
+    /**
+     * write() flushes before a batch could pass either limit, and flush() checks again before it
+     * sends. One event larger than BATCH_BYTES_MAX on its own still goes out, alone, since
+     * dropping it would lose it, so the byte limit only holds once a batch has two.
+     */
+    private function assertBatchBounds(int $eventCount, int $batchBytes): void
+    {
+        Assert::that(
+            $eventCount <= self::BATCH_EVENTS_MAX,
+            'chronicle.assert.batch-events',
+            "A PostHog batch holds {$eventCount} events, more than BATCH_EVENTS_MAX (".self::BATCH_EVENTS_MAX.')',
+        );
+
+        if ($eventCount > 1) {
+            Assert::that(
+                $batchBytes <= self::BATCH_BYTES_MAX,
+                'chronicle.assert.batch-bytes',
+                "A PostHog batch of {$eventCount} events holds {$batchBytes} bytes, more than BATCH_BYTES_MAX (".self::BATCH_BYTES_MAX.')',
+            );
+        }
     }
 
     private function reportDropped(int $eventCount, string $reason): void
