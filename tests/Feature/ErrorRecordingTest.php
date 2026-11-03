@@ -17,16 +17,16 @@ it('records structured fields for exceptions implementing the contract', functio
     $handler = chronicleTestHandler();
 
     $previous = new RuntimeException('network down');
-    $e = PaymentDeclined::byIssuer($previous);
+    $exception = PaymentDeclined::byIssuer($previous);
 
     // Act
-    app(Chronicle::class)->recordError($e);
+    app(Chronicle::class)->recordError($exception);
 
     // Assert
     $entry = chronicleEntries($handler)[0];
 
-    expect($e->getPrevious())->toBe($previous)
-        ->and($e->errorCode())->toBe('billing.declined')
+    expect($exception->getPrevious())->toBe($previous)
+        ->and($exception->errorCode())->toBe('billing.declined')
         ->and($entry['type'])->toBe('error')
         ->and($entry['error.code'])->toBe('billing.declined')
         ->and($entry['error.message'])->toBe('Payment failed')
@@ -74,15 +74,15 @@ it('records structured exceptions thrown inline', function (string $class, strin
             link: 'https://docs.example.com/errors#billing-declined',
             previous: $previous,
         );
-    } catch (StructuredException $e) {
-        app(Chronicle::class)->recordError($e);
+    } catch (StructuredException $exception) {
+        app(Chronicle::class)->recordError($exception);
     }
 
     // Assert
     $entry = chronicleEntries($handler)[0];
 
-    expect($e)->toBeInstanceOf($base)
-        ->and($e->getPrevious())->toBe($previous)
+    expect($exception)->toBeInstanceOf($base)
+        ->and($exception->getPrevious())->toBe($previous)
         ->and($entry['error.code'])->toBe('billing.declined')
         ->and($entry['error.message'])->toBe('Payment failed')
         ->and($entry['error.why'])->toBe('Issuer declined the charge')
@@ -120,11 +120,13 @@ it('merges exception context and lets call-site context win', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
-    $e = new class('Payment failed') extends RuntimeException implements StructuredException
+    $exception = new class('Payment failed') extends RuntimeException implements StructuredException
     {
         use HasStructuredException;
 
-        /** @return array<string, string> */
+        /**
+         * @return array<string, mixed>
+         */
         public function context(): array
         {
             return [
@@ -134,10 +136,10 @@ it('merges exception context and lets call-site context win', function () {
         }
     };
 
-    $e->errorCode = 'billing.declined';
+    $exception->errorCode = 'billing.declined';
 
     // Act
-    app(Chronicle::class)->recordError($e, context: ['shared' => 'from-call-site']);
+    app(Chronicle::class)->recordError($exception, context: ['shared' => 'from-call-site']);
 
     // Assert
     $entry = chronicleEntries($handler)[0];
@@ -162,9 +164,11 @@ it('truncates long context values', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
-    $e = new class('boom') extends RuntimeException
+    $exception = new class('boom') extends RuntimeException
     {
-        /** @return array<string, string> */
+        /**
+         * @return array<string, mixed>
+         */
         public function context(): array
         {
             return ['raw' => str_repeat('a', 1500)];
@@ -172,7 +176,7 @@ it('truncates long context values', function () {
     };
 
     // Act
-    app(Chronicle::class)->recordError($e);
+    app(Chronicle::class)->recordError($exception);
 
     // Assert
     expect(strlen(Arr::string(chronicleEntries($handler)[0], 'raw')))->toBe(1000);

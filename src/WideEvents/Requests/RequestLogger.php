@@ -23,10 +23,13 @@ class RequestLogger
         protected Chronicle $chronicle,
     ) {}
 
-    public function log(Request $request, Response $response, float $startTime): void
+    /**
+     * @param  float  $startedAtSeconds  microtime(true) when the request started.
+     */
+    public function log(Request $request, Response $response, float $startedAtSeconds): void
     {
         $user = $request->user();
-        $payload = [
+        $requestFields = [
             'request' => [
                 // LogRequests' id in Context replaces this one; it only shows when the logger is called directly.
                 'id' => substr(bin2hex(random_bytes(16)), 0, 16),
@@ -35,7 +38,7 @@ class RequestLogger
             'url' => $request->fullUrl(),
             'route' => $this->routeName($request),
             'status' => $response->getStatusCode(),
-            'duration_ms' => round((microtime(true) - $startTime) * 1000, 2),
+            'duration_ms' => round((microtime(true) - $startedAtSeconds) * 1000, 2),
             'ip' => $request->ip(),
             'user' => [
                 'id' => $user instanceof Authenticatable ? $user->getAuthIdentifier() : null,
@@ -45,7 +48,7 @@ class RequestLogger
         $exception = property_exists($response, 'exception') ? $response->exception : null;
         $errorFields = $exception instanceof Throwable ? ErrorFields::for($exception) : [];
 
-        $event = $this->chronicle->event('request', $errorFields, defaults: $payload);
+        $event = $this->chronicle->event('request', $errorFields, defaults: $requestFields);
 
         if (! $this->shouldSample($request, $response, $event)) {
             return;

@@ -29,9 +29,9 @@ class Chronicle
     /**
      * @param  array<mixed>  $context
      */
-    public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
+    public function recordError(Throwable $exception, Level|string $level = Level::Error, array $context = []): void
     {
-        $this->record('error', ErrorFields::for($e, $context), $level);
+        $this->record('error', ErrorFields::for($exception, $context), $level);
     }
 
     /**
