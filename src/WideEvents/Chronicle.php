@@ -185,7 +185,7 @@ class Chronicle
      */
     public function write(array $event, Level $level): void
     {
-        if (! config('chronicle.enabled', true)) {
+        if (! config('chronicle.enabled')) {
             return;
         }
 
@@ -236,7 +236,7 @@ class Chronicle
      */
     protected function channel(): LoggerInterface
     {
-        return Log::channel('chronicle-'.Config::string('chronicle.default', 'file'));
+        return Log::channel('chronicle-'.Config::string('chronicle.default'));
     }
 
     /**

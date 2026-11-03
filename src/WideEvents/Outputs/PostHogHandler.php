@@ -33,6 +33,17 @@ use Throwable;
  */
 class PostHogHandler extends AbstractProcessingHandler
 {
+    /**
+     * The defaults of a posthog channel's options. config/chronicle.php and the posthog driver
+     * both read them, so an app that published the config before an option existed gets the
+     * same default as a fresh install.
+     */
+    public const HOST_DEFAULT = 'https://us.i.posthog.com';
+
+    public const LEVEL_DEFAULT = 'info';
+
+    public const SCOPE_DEFAULT = 'chronicle';
+
     /** Events per request. Large enough to send a request's events at once, small enough to stay fast. */
     public const BATCH_EVENTS_MAX = 100;
 
@@ -70,8 +81,8 @@ class PostHogHandler extends AbstractProcessingHandler
         protected HttpFactory $http,
         // OTLP's service.name, which PostHog groups and filters logs by.
         protected string $service,
-        protected string $scope = 'chronicle',
-        int|string|Level $level = Level::Info,
+        protected string $scope,
+        int|string|Level $level,
         bool $bubble = true,
         protected bool $debug = false,
     ) {
