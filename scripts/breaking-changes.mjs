@@ -21,7 +21,8 @@ function fail(message) {
 
 function check() {
   const { PR_TITLE: title, BASE_SHA: base } = process.env;
-  if (!title || !base) fail("PR_TITLE and BASE_SHA must be set.");
+  if (!title) fail("PR_TITLE must be set.");
+  if (!base) fail("BASE_SHA must be set.");
 
   const added = execFileSync(
     "git",
@@ -32,15 +33,18 @@ function check() {
     .filter((file) => path.dirname(file) === dir && isNote(path.basename(file)));
   const breaking = /^\w+!:/.test(title);
 
-  if (breaking && added.length === 0) {
-    fail(
-      `The title marks this pull request as breaking, but it adds no file to ${dir}/. Copy ${dir}/_template.md and describe how to upgrade.`,
-    );
-  }
-  if (!breaking && added.length > 0) {
-    fail(
-      `This pull request adds ${added.join(", ")}, but its title is not marked as breaking. Add "!" after the type, e.g. "feat!: ...", so the release bumps the minor version.`,
-    );
+  if (breaking) {
+    if (added.length === 0) {
+      fail(
+        `The title marks this pull request as breaking, but it adds no file to ${dir}/. Copy ${dir}/_template.md and describe how to upgrade.`,
+      );
+    }
+  } else {
+    if (added.length > 0) {
+      fail(
+        `This pull request adds ${added.join(", ")}, but its title is not marked as breaking. Add "!" after the type, e.g. "feat!: ...", so the release bumps the minor version.`,
+      );
+    }
   }
   for (const file of added) {
     if (!readFileSync(path.join(root, file), "utf8").startsWith("# ")) {

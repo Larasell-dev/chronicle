@@ -20,17 +20,19 @@ final readonly class RequestId
 
     /**
      * The client's id when it is visible ASCII of at most 200 characters, which is what proxies
-     * send and safe to log and echo back. Any other value, or none, gets a new UUIDv7.
+     * send and safe to log and echo back. Any other value, or none, gets a new UUIDv7, because
+     * UUIDv7s sort by the time they were made, so the ids of a log sort like its lines.
      *
      * @internal
      */
     public static function fromHeader(?string $header): self
     {
-        if ($header === null || preg_match('/^[\x21-\x7E]{1,200}$/D', $header) !== 1) {
-            return new self(Str::uuid7()->toString());
+        // A missing header is matched as '', which the pattern rejects, so it needs no own branch.
+        if (preg_match('/^[\x21-\x7E]{1,200}$/D', $header ?? '') === 1) {
+            return new self($header);
         }
 
-        return new self($header);
+        return new self(Str::uuid7()->toString());
     }
 
     /**

@@ -42,11 +42,9 @@ class RequestLogger
 
         $event = $this->chronicle->event('request', $errorFields, defaults: $payload);
 
-        if (! $this->shouldSample($request, $response, $event)) {
-            return;
+        if ($this->shouldSample($request, $response, $event)) {
+            $this->chronicle->write($event, $this->levelForStatus($response->getStatusCode()));
         }
-
-        $this->chronicle->write($event, $this->levelForStatus($response->getStatusCode()));
     }
 
     /**
@@ -58,9 +56,26 @@ class RequestLogger
         $route = $request->route();
         $name = $route?->getName();
 
-        return $name === null || $name === '' || str_ends_with($name, '.') ? $route?->uri() : $name;
+        if ($name === null) {
+            return $route?->uri();
+        }
+
+        if ($name === '') {
+            return $route?->uri();
+        }
+
+        if (str_ends_with($name, '.')) {
+            return $route?->uri();
+        }
+
+        return $name;
     }
 
+    /**
+     * Asks the configured sampler whether to keep the event. It runs once the event is complete,
+     * so a sampler can decide on the outcome, such as keeping every failure and slow request and
+     * only a share of the rest. Without a sampler every event is kept.
+     */
     protected function shouldSample(Request $request, Response $response, array $payload): bool
     {
         $sampler = config('chronicle.sampling');
@@ -71,13 +86,17 @@ class RequestLogger
 
         $sampler = app()->make($sampler);
 
-        if (! $sampler instanceof Sampler) {
-            throw InvalidSampler::doesNotImplementSampler($sampler);
+        if ($sampler instanceof Sampler) {
+            return $sampler->shouldLog($request, $response, $payload);
         }
 
-        return $sampler->shouldLog($request, $response, $payload);
+        throw InvalidSampler::doesNotImplementSampler($sampler);
     }
 
+    /**
+     * A 5xx is the app's own failure and needs attention, so it is an error. A 4xx is the client's
+     * mistake, a warning because a spike of them points to a broken client or an attack.
+     */
     protected function levelForStatus(int $status): Level
     {
         if ($status >= 500) {

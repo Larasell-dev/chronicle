@@ -23,20 +23,21 @@ class LogRequests
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (! config('chronicle.enabled', true)) {
+        if (config('chronicle.enabled', true)) {
+            // Taken before anything else runs, so duration_ms covers every later middleware too.
+            $startTime = microtime(true);
+
+            $id = RequestId::fromHeader($request->headers->get(self::HEADER));
+            Context::add(RequestId::CONTEXT_KEY, $id->value);
+
+            $response = $next($request);
+            $response->headers->set(self::HEADER, $id->value);
+
+            $this->logger->log($request, $response, $startTime);
+
+            return $response;
+        } else {
             return $next($request);
         }
-
-        $startTime = microtime(true);
-
-        $id = RequestId::fromHeader($request->headers->get(self::HEADER));
-        Context::add(RequestId::CONTEXT_KEY, $id->value);
-
-        $response = $next($request);
-        $response->headers->set(self::HEADER, $id->value);
-
-        $this->logger->log($request, $response, $startTime);
-
-        return $response;
     }
 }

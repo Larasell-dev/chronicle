@@ -32,21 +32,24 @@ final class ErrorFields
         ]);
     }
 
+    /**
+     * The exception's own context(), the same method Laravel's exception handler reads, so the
+     * fields an app already attaches for its logs also reach the event. Top-level strings are cut
+     * at 1000 bytes, so one large value, such as a response body, cannot bloat the event.
+     */
     private static function exceptionContext(Throwable $e): array
     {
-        if (! method_exists($e, 'context')) {
-            return [];
+        if (method_exists($e, 'context')) {
+            $context = $e->context();
+
+            if (is_array($context)) {
+                return array_map(
+                    fn ($value) => is_string($value) ? substr($value, 0, 1000) : $value,
+                    $context,
+                );
+            }
         }
 
-        $context = $e->context();
-
-        if (! is_array($context)) {
-            return [];
-        }
-
-        return array_map(
-            fn ($value) => is_string($value) && strlen($value) > 1000 ? substr($value, 0, 1000) : $value,
-            $context,
-        );
+        return [];
     }
 }

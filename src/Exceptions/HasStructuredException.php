@@ -14,6 +14,11 @@ trait HasStructuredException
 
     public ?string $errorLink = null;
 
+    /**
+     * Builds the exception for a named constructor, such as PaymentDeclined::byIssuer(). Named
+     * constructors keep the code, why, fix and link next to the one situation they describe.
+     * PHP's integer exception code is always 0, because the string code replaces it.
+     */
     protected static function structured(
         string $code,
         string $message,
@@ -27,6 +32,11 @@ trait HasStructuredException
         return $exception->withError($code, $why, $fix, $link);
     }
 
+    /**
+     * Sets the structured fields on an exception that already exists. structured() and the
+     * constructors of the inline Structured*Exception classes both use it, because a constructor
+     * cannot call structured(), which would build a second exception.
+     */
     protected function withError(string $code, ?string $why = null, ?string $fix = null, ?string $link = null): static
     {
         $this->errorCode = $code;

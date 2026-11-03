@@ -18,6 +18,7 @@ class ChronicleServiceProvider extends ServiceProvider
 
         $this->registerLoggingDrivers();
 
+        // Singletons, because neither keeps per-request state, so one instance serves the process.
         $this->app->singleton(Chronicle::class);
         $this->app->singleton(RequestLogger::class);
     }
@@ -29,10 +30,18 @@ class ChronicleServiceProvider extends ServiceProvider
         ], 'chronicle.config');
     }
 
+    /**
+     * Adds the posthog driver to Laravel's log manager, so Chronicle's channels and the app's own
+     * channels in config/logging.php can both use it. Extending the binding, rather than resolving
+     * the log manager here, keeps it lazy: it is only built once something logs.
+     */
     protected function registerLoggingDrivers(): void
     {
         $this->app->extend('log', function (LogManager $logger): LogManager {
             $logger->extend('posthog', function (Application $app, array $config): Logger {
+                // An app that already binds an OpenTelemetry logger provider gets it reused, so
+                // Chronicle's events go through the app's exporters and processors. Debug mode
+                // makes a missing API key throw, so a developer notices before production.
                 $handler = new PostHogHandler(
                     host: (string) ($config['host'] ?? 'https://us.i.posthog.com'),
                     apiKey: (string) ($config['api_key'] ?? ''),

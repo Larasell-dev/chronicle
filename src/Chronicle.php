@@ -19,6 +19,11 @@ class Chronicle
         $this->write($this->event($type, $fields), $level);
     }
 
+    /**
+     * Records an error event for the exception. Its fields come from ErrorFields, so an error event
+     * and a failed request event describe the same exception the same way. The context you pass
+     * wins over the exception's own context().
+     */
     public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
     {
         $this->record('error', ErrorFields::for($e, $context), $level);
@@ -51,15 +56,15 @@ class Chronicle
      */
     public function write(array $event, Level|string $level): void
     {
-        if (! config('chronicle.enabled', true)) {
-            return;
+        if (config('chronicle.enabled', true)) {
+            $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
+
+            // The event travels as one JSON string, so every handler receives it whole. Invalid
+            // UTF-8 is substituted rather than failing, so one bad byte cannot drop the event.
+            $this->channel()->{$level->getName()}(
+                (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
+            );
         }
-
-        $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
-
-        $this->channel()->{$level->getName()}(
-            (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
-        );
     }
 
     /**
@@ -87,8 +92,11 @@ class Chronicle
     }
 
     /**
-     * Collapse nested context arrays into flat, dot-notation string keys.
-     * Lists are collapsed into a truncated JSON string.
+     * Collapse nested context arrays into flat, dot-notation string keys, because log backends
+     * such as PostHog query flat attributes, not nested objects.
+     *
+     * Lists are collapsed into one JSON string, because a key per index would add an attribute
+     * per element. The string is cut at 1000 bytes, so one large list cannot bloat the event.
      *
      * @param  array<string, mixed>  $context
      * @return array<string, mixed>
@@ -100,12 +108,14 @@ class Chronicle
         foreach ($context as $key => $value) {
             $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
 
-            if (! is_array($value)) {
-                $flattened[$path] = $value;
-            } elseif (array_is_list($value)) {
-                $flattened[$path] = substr((string) json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR), 0, 1000);
+            if (is_array($value)) {
+                if (array_is_list($value)) {
+                    $flattened[$path] = substr((string) json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR), 0, 1000);
+                } else {
+                    $flattened = array_merge($flattened, $this->flatten($value, $path));
+                }
             } else {
-                $flattened = array_merge($flattened, $this->flatten($value, $path));
+                $flattened[$path] = $value;
             }
         }
 
