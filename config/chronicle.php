@@ -14,14 +14,12 @@ return [
      * The channels Chronicle can write to. They work like the channels in
      * config/logging.php and accept the same drivers and options. Chronicle
      * also registers a posthog driver. A stack lists channels from this file.
+     *
+     * Chronicle sends nothing to PostHog by default. To send events there,
+     * uncomment the posthog and stack channels, set CHRONICLE_CHANNEL=stack
+     * and POSTHOG_API_KEY in your .env file.
      */
     'channels' => [
-        'stack' => [
-            'driver' => 'stack',
-            'channels' => ['file', 'posthog'],
-            'ignore_exceptions' => false,
-        ],
-
         'file' => [
             'driver' => 'single',
             'path' => storage_path('logs/chronicle.log'),
@@ -29,12 +27,18 @@ return [
             'level' => 'info',
         ],
 
-        'posthog' => [
-            'driver' => 'posthog',
-            'api_key' => env('POSTHOG_API_KEY'),
-            'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
-            'level' => 'info',
-        ],
+        // 'posthog' => [
+        //     'driver' => 'posthog',
+        //     'api_key' => env('POSTHOG_API_KEY'),
+        //     'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
+        //     'level' => 'info',
+        // ],
+
+        // 'stack' => [
+        //     'driver' => 'stack',
+        //     'channels' => ['file', 'posthog'],
+        //     'ignore_exceptions' => false,
+        // ],
     ],
 
     /*

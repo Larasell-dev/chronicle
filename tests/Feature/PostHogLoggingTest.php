@@ -155,9 +155,22 @@ it('maps entry fields to otel attributes', function () {
     ])->not->toHaveKeys(['timestamp', 'type']);
 });
 
+function enablePostHogChannels(?string $apiKey): void
+{
+    config()->set('chronicle.channels.posthog', [
+        'driver' => 'posthog',
+        'api_key' => $apiKey,
+        'level' => 'info',
+    ]);
+    config()->set('chronicle.channels.stack', [
+        'driver' => 'stack',
+        'channels' => ['file', 'posthog'],
+    ]);
+}
+
 it('throws in debug mode when the posthog channel is enabled without an api key', function () {
     config()->set('app.debug', true);
-    config()->set('chronicle.channels.posthog.api_key', null);
+    enablePostHogChannels(null);
     config()->set('chronicle.default', 'posthog');
 
     app(Chronicle::class)->record('request');
@@ -165,7 +178,7 @@ it('throws in debug mode when the posthog channel is enabled without an api key'
 
 it('does not throw outside debug mode when the api key is missing', function () {
     config()->set('app.debug', false);
-    config()->set('chronicle.channels.posthog.api_key', null);
+    enablePostHogChannels(null);
     config()->set('chronicle.default', 'posthog');
 
     $record = fn () => app(Chronicle::class)->record('request');
@@ -173,22 +186,22 @@ it('does not throw outside debug mode when the api key is missing', function () 
     expect($record)->not->toThrow(MissingPostHogApiKey::class);
 });
 
-it('writes only to the log file by default', function () {
+it('ships without a posthog channel, so it writes only to the log file by default', function () {
     $emitted = [];
     $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
-    config()->set('chronicle.channels.posthog.api_key', 'phc_test');
     @unlink(storage_path('logs/chronicle.log'));
 
     app(Chronicle::class)->record('ping');
 
-    expect(file_get_contents(storage_path('logs/chronicle.log')))->toContain('"type":"ping"')
+    expect(config('chronicle.channels'))->toHaveKeys(['file'])->not->toHaveKeys(['posthog', 'stack'])
+        ->and(file_get_contents(storage_path('logs/chronicle.log')))->toContain('"type":"ping"')
         ->and($emitted)->toBeEmpty();
 });
 
 it('writes to the log file and to PostHog through the stack channel', function () {
     $emitted = [];
     $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
-    config()->set('chronicle.channels.posthog.api_key', 'phc_test');
+    enablePostHogChannels('phc_test');
     config()->set('chronicle.default', 'stack');
     @unlink(storage_path('logs/chronicle.log'));
 
