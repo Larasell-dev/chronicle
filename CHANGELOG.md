@@ -64,6 +64,620 @@
 * name the structured error code argument errorCode ([1ca5427](https://github.com/Larasell-dev/chronicle/commit/1ca54278c0f8b9db38209eafac96d22b75c1c797))
 * rename the sampling config to sampler ([8816fea](https://github.com/Larasell-dev/chronicle/commit/8816fea7d1d942b885623813dfb4ae8f63ccd130))
 
+### Upgrade guide
+
+#### Chronicle's channels are registered once, when the app boots
+
+Chronicle used to copy every channel in `chronicle.channels` into `logging.channels` on every
+event, so a change to `chronicle.channels` at runtime took effect on the next event. That cost
+work on every event, and Laravel caches each logger on first use anyway, so changes to a channel
+already used were ignored. Chronicle now registers the channels once, before any provider boots.
+`chronicle.default`, the channel to write to, is still read on every event.
+
+##### Who is affected
+
+Code that changes `chronicle.channels` after the app booted: in a provider's `boot()`, a
+middleware, a job or a test.
+
+Apps that only set `chronicle.channels` in `config/chronicle.php`, and switch channels with
+`CHRONICLE_CHANNEL` or `chronicle.default`, are not affected.
+
+##### How to upgrade
+
+Define channels in `config/chronicle.php`, or set them in a provider's `register()`, which runs
+before boot:
+
+```php
+// Before: in AppServiceProvider::boot()
+config()->set('chronicle.channels.audit', ['driver' => 'single', 'path' => storage_path('logs/audit.log')]);
+
+// After: in AppServiceProvider::register()
+config()->set('chronicle.channels.audit', ['driver' => 'single', 'path' => storage_path('logs/audit.log')]);
+```
+
+In tests with Orchestra Testbench, set them in `defineEnvironment()`. Then pick one per test with
+`chronicle.default`:
+
+```php
+protected function defineEnvironment($app): void
+{
+    config()->set('chronicle.channels.test', ['driver' => 'custom', 'via' => fn () => new Logger('test', [new TestHandler])]);
+}
+
+// In a test
+config()->set('chronicle.default', 'test');
+```
+
+#### `Chronicle` is now `Larasell\Chronicle\WideEvents\Chronicle`
+
+The package has two features: structured exceptions in `Larasell\Chronicle\Exceptions`, and wide
+events in `Larasell\Chronicle\WideEvents`. `Chronicle` records wide events, so it now lives with
+the rest of them. The new `Level` enum lives there too, as `Larasell\Chronicle\WideEvents\Enums\Level`.
+
+##### Who is affected
+
+Every app that imports or type-hints `Larasell\Chronicle\Chronicle`, e.g. to call `record()` or
+`recordError()`. There is no alias for the old name. Apps that only use the structured exceptions
+or the `LogRequests` middleware are not affected.
+
+##### How to upgrade
+
+Change the import:
+
+```php
+// Before
+use Larasell\Chronicle\Chronicle;
+
+// After
+use Larasell\Chronicle\WideEvents\Chronicle;
+```
+
+To update every file at once:
+
+```bash
+grep -rl 'Larasell\\Chronicle\\Chronicle\b' app routes bootstrap config tests \
+  | xargs sed -i 's/Larasell\\Chronicle\\Chronicle\b/Larasell\\Chronicle\\WideEvents\\Chronicle/g'
+```
+
+#### Every event is bounded: strings, keys, nesting and field count have limits
+
+Chronicle used to log a string field or a nested array at whatever size the app passed. One large
+field in `Context` could make every log line of a request megabytes long. Lists were the only
+values that had a limit, and they were cut at byte 1,000 with `substr()`, which could leave
+invalid JSON or split a UTF-8 character. Now every part of an event has a limit. Each byte limit
+counts the bytes a value takes in the log line, escapes included, so a string of quotes or control
+characters keeps fewer characters than one of letters, and no event's line is longer than
+`Chronicle::EVENT_BYTES_MAX` bytes, about 311 KB:
+
+| What | Limit | What happens past it |
+|---|---|---|
+| A string value | 1,000 bytes (`Chronicle::VALUE_BYTES_MAX`) | Cut to the longest prefix that fits, on a UTF-8 character boundary |
+| A list, stored as JSON | 1,000 bytes | Whole elements are left out, so it stays valid JSON, and `<key>_count` holds the full count |
+| A key | 200 bytes | Cut on a character boundary |
+| Nesting | 32 levels | Deeper arrays are stored as one JSON value |
+| Fields per event | 256 | Fields only in `Context` are dropped first, latest first, and `chronicle.fields_dropped` holds how many |
+
+##### Who is affected
+
+- Apps that log strings longer than 1,000 bytes, such as request bodies, SQL or stack traces,
+  and read them back in full.
+- Apps that parse list fields. A cut list used to be truncated JSON; now it's valid JSON with
+  fewer elements, plus a `<key>_count` field.
+- Apps with more than 256 fields in one event, Context included.
+
+Apps whose events stay within these limits see no difference, except that log lines now contain
+non-ASCII characters as they are, e.g. `ü` instead of `\u00fc`, and `/` instead of `\/` inside
+list values. JSON readers decode both the same way.
+
+##### How to upgrade
+
+Nothing to change in code. To keep more of a long value, log the parts you need as separate
+fields, or log a reference to the full value:
+
+```php
+use Larasell\Chronicle\WideEvents\Chronicle;
+
+// Before: the whole payload, any size
+app(Chronicle::class)->record('webhook', ['payload' => $request->getContent()]);
+
+// After: the fields you query on, and a pointer to the full body
+app(Chronicle::class)->record('webhook', [
+    'webhook.provider' => 'stripe',
+    'webhook.event' => $request->input('type'),
+    'webhook.body_path' => $storedPath,
+]);
+```
+
+When you read a list field, check `<key>_count` to see if elements were left out:
+
+```json
+{"type":"tags","user.tags":"[\"tag-0\",\"tag-1\",…]","user.tags_count":200}
+```
+
+#### Objects in an event are flattened into dotted fields, like arrays
+
+An object used to be stored as one value, whole: a `Collection`, a DTO or a `JsonSerializable`
+was written at whatever size its JSON had, past every limit of the event. Now Chronicle first
+turns an object into plain data, and that data follows the same rules as arrays:
+
+| Object | Turned into |
+|---|---|
+| `JsonSerializable` | what `jsonSerialize()` returns |
+| `Arrayable`, e.g. a `Collection` or a model | what `toArray()` returns |
+| `stdClass` | its properties |
+| Any other object | its public properties, through `json_encode` |
+
+So an associative result becomes dotted fields, a list becomes one bounded JSON value with a
+`<key>_count` when elements were left out, and a string is cut to 1,000 bytes.
+
+##### Who is affected
+
+Apps that pass objects as fields or put them in `Context`, and parse those fields:
+
+```php
+app(Chronicle::class)->record('checkout', ['customer' => (object) ['id' => 7, 'tier' => 'gold']]);
+```
+
+```json
+// Before
+{"type":"checkout","customer":{"id":7,"tier":"gold"}}
+
+// After
+{"type":"checkout","customer.id":7,"customer.tier":"gold"}
+```
+
+Apps that only log scalars and arrays are not affected.
+
+##### How to upgrade
+
+Query the dotted fields instead of the nested object, e.g. `customer.tier` rather than
+`customer->tier`. A `jsonSerialize()` or `toArray()` that throws no longer costs the event: the
+field becomes `null` and `chronicle.unencodable` names the method that threw.
+
+#### The `posthog` channel sends batches of OTLP JSON, without the OpenTelemetry packages
+
+Chronicle used the OpenTelemetry SDK to send each event to PostHog in its own blocking HTTP
+request, with the SDK's defaults of a 10 second timeout and 3 retries. A slow PostHog could hold
+up every request of the app. The SDK also pulled in 11 packages, two of them Composer plugins
+every app had to allow.
+
+The `posthog` channel now sends OTLP JSON, the format PostHog's own SDKs use, with Laravel's HTTP
+client. It collects a request's events and sends them in one request when the app terminates,
+which is after the response under PHP-FPM, after each queued job, and early once a batch holds
+100 events or 1 MB. Each batch gets a 1 second connect timeout, a 2 second timeout and one retry,
+at most about 4 seconds. A batch PostHog doesn't accept is dropped and reported to PHP's error
+log, never thrown.
+
+##### Who is affected
+
+- Apps that bound `OpenTelemetry\SDK\Logs\LoggerProviderInterface` in the container so Chronicle
+  would send through their own OpenTelemetry pipeline. Chronicle no longer reads that binding.
+- Apps that use the OpenTelemetry packages themselves but never required them, because Chronicle
+  installed them. Require them in your own `composer.json`.
+- Apps whose `composer.json` allows the `php-http/discovery` and `tbachert/spi` plugins only for
+  Chronicle. You can remove those entries.
+
+Logs in PostHog now carry your `APP_NAME` as `service.name`, instead of `unknown_service:php`.
+Saved PostHog filters on the old service name need updating.
+
+Apps that only set `POSTHOG_API_KEY` and `POSTHOG_HOST` need no changes.
+
+##### How to upgrade
+
+If your app uses OpenTelemetry itself, require it directly:
+
+```bash
+composer require open-telemetry/api open-telemetry/sdk open-telemetry/exporter-otlp
+```
+
+If you sent Chronicle's events through your own OpenTelemetry pipeline, there is no replacement
+for the container binding. Either let the `posthog` channel send to PostHog directly, or have your
+collector read the JSON lines the `file` channel writes to `storage/logs/chronicle.log`.
+
+#### A failed query's `error.message` no longer contains its values
+
+Laravel's `QueryException` puts the query's bindings into its message, e.g.
+`insert into users (email, password) values (jane@example.com, $2y$12$…)`, so Chronicle logged
+emails, password hashes and tokens with every failed query. Chronicle now logs the SQL with its
+`?` placeholders instead. The database's own message, which comes first, is unchanged and can
+still quote a value, e.g. the entry that broke a unique index.
+
+```text
+// Before
+SQLSTATE[HY000]: General error (Connection: mysql, SQL: insert into users (email) values (jane@example.com))
+
+// After
+SQLSTATE[HY000]: General error (Connection: mysql, SQL: insert into users (email) values (?))
+```
+
+##### Who is affected
+
+Apps that read the bindings of failed queries from `error.message` in their logs or in PostHog.
+Error events of other exceptions are not affected.
+
+##### How to upgrade
+
+Log the values you need yourself, under keys that aren't secret:
+
+```php
+// Before: the email was in error.message
+$user->save();
+
+// After
+Context::add('signup.email_domain', Str::after($user->email, '@'));
+$user->save();
+```
+
+#### `recordError()` takes its arguments in the same order as `record()`, with Chronicle's own `Level`
+
+`recordError()` took the level second and the fields third, the reverse of `record()`, and named
+the fields `$context` instead of `$fields`. Both methods now take fields second and the level last.
+Levels are now Chronicle's own `Larasell\Chronicle\WideEvents\Enums\Level` enum, so apps no longer need Monolog to
+pick one. Level names as strings still work, in any case; an unknown name now throws a structured
+`chronicle.level.unknown` exception instead of Monolog's `ValueError`.
+
+##### Who is affected
+
+- Calls to `recordError()` that pass a level, or fields by the name `context:`.
+- Calls to `record()` or `recordError()` that pass a `Monolog\Level` case. Strings such as
+  `'warning'` keep working.
+
+Apps that call `recordError($exception)` and `record($type, $fields)` without a level are not
+affected.
+
+##### How to upgrade
+
+```php
+// Before
+use Monolog\Level;
+
+app(Chronicle::class)->recordError($exception, Level::Warning, ['order.id' => 7]);
+app(Chronicle::class)->recordError($exception, context: ['order.id' => 7]);
+app(Chronicle::class)->record('inventory.low', ['sku' => $sku], Level::Warning);
+
+// After
+use Larasell\Chronicle\WideEvents\Enums\Level;
+
+app(Chronicle::class)->recordError($exception, ['order.id' => 7], Level::Warning);
+app(Chronicle::class)->recordError($exception, fields: ['order.id' => 7]);
+app(Chronicle::class)->record('inventory.low', ['sku' => $sku], Level::Warning);
+
+// A level without fields: name it
+app(Chronicle::class)->recordError($exception, level: 'warning');
+```
+
+#### Context can no longer replace the request fields Chronicle measured
+
+A request's event used to take any `Context` field with the same key as a request field, so a
+package that put `status` or `route` into Context changed the event of every request, also the
+requests of other packages. The fields Chronicle measured itself, `request.id`, `method`, `url`,
+`route`, `status`, `duration_ms`, `ip` and `user.id`, now always win, and so do an event's
+`timestamp` and `type`. Context can still fill in a request field that is `null`.
+
+To add fields to the event of the current request without sharing them with every log line and
+queued job, use the new `Chronicle::add()`.
+
+##### Who is affected
+
+Apps that use `Context` to replace a request field that Chronicle measured, e.g. a `user.id` set
+in Context while a user is signed in through the default guard, or any Context key named
+`timestamp` or `type`.
+
+Apps that only add their own keys to Context, or fill in `user.id` for guests, e.g. for customers
+signed in through another guard, are not affected.
+
+##### How to upgrade
+
+Keep a measured value under a key of its own:
+
+```php
+use Illuminate\Support\Facades\Context;
+
+// Before: replaced the id of the signed-in user
+Context::add('user.id', $customer->id);
+
+// After
+Context::add('customer.id', $customer->id);
+```
+
+For fields that only belong on the request's event:
+
+```php
+use Larasell\Chronicle\WideEvents\Chronicle;
+
+app(Chronicle::class)->add('payment', ['provider' => 'stripe', 'attempts' => 2]);
+```
+
+#### `chronicle.sampling` is now `chronicle.sampler`
+
+The config key holds a sampler class, so it is now named after one. The `Sampler` contract's
+third parameter is renamed from `$payload` to `$event` too, because it receives the whole
+flattened request event, not only the request's own fields.
+
+##### Who is affected
+
+- Apps that published `config/chronicle.php` and set `sampling`. Chronicle stops at boot with
+  `chronicle.sampling is now chronicle.sampler` until it is renamed, rather than quietly keeping
+  every request event.
+- Apps that call `Sampler::shouldLog()` with the named argument `payload:`. Implementations of
+  `Sampler` keep working with any parameter name.
+
+Apps that never set a sampler are not affected.
+
+##### How to upgrade
+
+Rename the key in `config/chronicle.php`:
+
+```php
+// Before
+'sampling' => App\Logging\KeepFailuresAndSlowRequests::class,
+
+// After
+'sampler' => App\Logging\KeepFailuresAndSlowRequests::class,
+```
+
+Optionally rename the parameter in your sampler to match the contract:
+
+```php
+// Before
+public function shouldLog(Request $request, Response $response, array $payload): bool
+
+// After
+public function shouldLog(Request $request, Response $response, array $event): bool
+```
+
+#### Chronicle redacts the values of secret keys
+
+Chronicle used to log every value as it was, so a `password`, `api_key` or `token` that reached an
+event through fields, `Context`, an exception's `context()` or the query was written to the log
+file and sent to PostHog. Chronicle now logs the value of every key that contains a word from the
+new `chronicle.redact` list as `"[redacted]"`, wherever the key is in an event, lists and objects
+included. The default list covers passwords, secrets, tokens, API keys, cookies, signatures and
+card numbers. Keys match by whole words, in any case: `token` matches `access_token`,
+`X-Csrf-Token` and `apiToken`, but not `tokens`. An event with hidden values lists their paths in
+`chronicle.redacted`, e.g. `["user.password","items.0.token"]`.
+
+##### Who is affected
+
+Apps that log a value under a key such as `token`, `secret`, `signature` or `password` and read it
+from the log, e.g. a `token_type` or `password_changed_at` field. Apps with a published
+`config/chronicle.php` get the default list too, since the config merges it in.
+
+##### How to upgrade
+
+Rename fields you need to keep, or set your own list in `config/chronicle.php`:
+
+```php
+// Before: logged as is
+Context::add('password_changed_at', $user->password_changed_at);
+
+// After: logged as "[redacted]", so give it a key without the word
+Context::add('user.days_since_reset', $user->password_changed_at->diffInDays());
+```
+
+```php
+// config/chronicle.php: your own list replaces the default one
+'redact' => [
+    'password', 'secret', 'token', 'api_key', 'apikey', 'authorization', 'cookie',
+    'credential', 'credentials', 'private_key', 'signature', 'sig', 'card_number',
+    'cvc', 'cvv', 'iban',
+],
+```
+
+#### Structured exceptions take `errorCode:` instead of `code:`
+
+PHP exceptions already have a code, the one `getCode()` returns. Chronicle's `code:` argument set
+something else, its string error code, so `new StructuredRuntimeException(code: 'billing.declined', ...)`
+still returned `0` from `getCode()`. The argument is now named `errorCode:`, like the
+`errorCode()` getter it fills.
+
+Events also gain an `error.exception_code` field with PHP's own code, e.g. a `PDOException`'s
+SQLSTATE or an HTTP status, for every exception. It is `null` when the code is `0` or `''`.
+`error.code` is unchanged: Chronicle's string code, or `null` for exceptions that aren't structured.
+
+##### Who is affected
+
+Calls that pass `code:` to any `Structured*Exception` constructor or to `structured()` in your own
+exceptions. They now fail with `Unknown named parameter $code`.
+
+Code that only reads `errorCode()`, or the `error.code` field, is not affected.
+
+##### How to upgrade
+
+Rename the argument:
+
+```php
+use Larasell\Chronicle\Exceptions\StructuredRuntimeException;
+
+// Before
+throw new StructuredRuntimeException(code: 'billing.declined', message: 'Payment failed');
+
+// After
+throw new StructuredRuntimeException(errorCode: 'billing.declined', message: 'Payment failed');
+```
+
+```php
+// Before
+return self::structured(code: 'billing.declined', message: 'Payment failed');
+
+// After
+return self::structured(errorCode: 'billing.declined', message: 'Payment failed');
+```
+
+To find the calls, including ones that put each argument on its own line:
+
+```bash
+grep -rnE "\bcode: ['\"]" app
+```
+
+#### The error fields of structured exceptions are private
+
+`$errorCode`, `$errorWhy`, `$errorFix` and `$errorLink` were public, so any code that caught a
+structured exception could rewrite or erase them before Chronicle logged it. They are now private:
+an exception sets them once, while it is built, and everyone else reads them through
+`errorCode()`, `errorWhy()`, `errorFix()` and `errorLink()`.
+
+##### Who is affected
+
+- Code that reads the properties directly, e.g. `$exception->errorCode`.
+- Exceptions that use `HasStructuredException` or `HasStructuredFields` and set the properties
+  from outside the class, e.g. right after `new`.
+
+Exceptions built with `structured()`, `new Structured*Exception(...)`, or `withError()` in their
+constructor are not affected, and neither are calls to the getters.
+
+##### How to upgrade
+
+Read through the getters:
+
+```php
+// Before
+$code = $exception->errorCode;
+
+// After
+$code = $exception->errorCode();
+```
+
+Set the fields while the exception is built, with `withError()` or `structured()`:
+
+```php
+use Larasell\Chronicle\Exceptions\HasStructuredException;
+use Larasell\Chronicle\Exceptions\StructuredException;
+
+// Before
+final class PaymentDeclined extends RuntimeException implements StructuredException
+{
+    use HasStructuredException;
+}
+
+$exception = new PaymentDeclined('Payment failed');
+$exception->errorCode = 'billing.declined';
+$exception->errorFix = 'Try a different card';
+
+// After
+final class PaymentDeclined extends RuntimeException implements StructuredException
+{
+    use HasStructuredException;
+
+    public static function forCard(): self
+    {
+        return self::structured(
+            errorCode: 'billing.declined',
+            message: 'Payment failed',
+            fix: 'Try a different card',
+        );
+    }
+}
+
+$exception = PaymentDeclined::forCard();
+```
+
+#### Values JSON can't encode become `null`, instead of costing the whole event
+
+A field `json_encode` couldn't encode, such as `NAN`, `INF`, a resource, or an object whose
+`jsonSerialize()` throws, used to make the whole event fail to encode, and Chronicle wrote an
+empty line. The event was lost without a trace. Now only that field becomes `null`, and
+`chronicle.unencodable` says which fields and why, as a JSON object:
+
+```json
+{"type":"checkout","order.id":7,"conversion":null,"ratio":null,
+ "chronicle.unencodable":"{\"conversion\":\"NAN\",\"ratio\":\"INF\"}"}
+```
+
+In a list, only the bad elements become `null`: `[1,null,2]`.
+
+##### Who is affected
+
+- Apps that log floats that can be `NAN` or `INF`, e.g. a ratio divided by zero, or resources
+  such as file handles. Those events now show up, with `null` in place of the value.
+- Apps that look for empty lines in `chronicle.log` to spot failed events. Search for
+  `chronicle.unencodable` instead.
+- The posthog channel: a message that isn't a JSON object now throws `chronicle.posthog.invalid-event`
+  in debug mode. Outside debug mode it is sent with `chronicle.decode_error`.
+
+Apps that only log strings, ints, bools and arrays of them are not affected.
+
+##### How to upgrade
+
+Nothing is required. To find the events that had a bad value:
+
+```bash
+grep '"chronicle.unencodable"' storage/logs/chronicle.log
+```
+
+To keep the information, log the value in a form JSON can hold:
+
+```php
+// Before: NAN when there were no visits
+app(Chronicle::class)->record('report', ['conversion' => $orders / $visits]);
+
+// After
+app(Chronicle::class)->record('report', ['conversion' => $visits > 0 ? $orders / $visits : null]);
+```
+
+#### A request's `url` has no query and the route's template as its path
+
+`url` used to be the full url, query included, so tokens and signed-url signatures in the query
+were logged as they were. `url` is now the url without the query, and each query value is a field
+of its own, `query.<name>`, so [redaction](secret-keys-redacted.md) can hide the values of secret
+keys. A request event keeps at most 32 query values; past that, `query_count` holds how many the
+query has. A url without a query gets no `query` fields.
+
+Values in the path, such as a password reset token, were logged as they were too. When a route
+matched, the path in `url` is now the route's template, and each route parameter is a field of its
+own, `route_params.<name>`, with its value from the path, so the same redaction applies. A request
+that matches no route, such as a 404, keeps its path.
+
+```json
+// Before: /orders?page=2&token=abc
+{"url": "https://shop.test/orders?page=2&token=abc"}
+
+// After
+{"url": "https://shop.test/orders", "query.page": "2", "query.token": "[redacted]"}
+
+// Before: /reset-password/9f2c1a
+{"url": "https://shop.test/reset-password/9f2c1a"}
+
+// After
+{"url": "https://shop.test/reset-password/{token}", "route_params.token": "[redacted]"}
+```
+
+##### Who is affected
+
+Dashboards, alerts, samplers and queries that read the query or a path value from `url`, e.g. in
+PostHog or with `$event['url']` in a `Sampler`. Grouping by `url` now groups by route, which
+merges the requests of every order, user or token.
+
+Apps that only use `route`, or `url` of routes without parameters, are not affected.
+
+##### How to upgrade
+
+Read query values from their own fields:
+
+```php
+// Before
+public function shouldLog(Request $request, Response $response, array $event): bool
+{
+    return str_contains($event['url'], 'debug=1');
+}
+
+// After
+public function shouldLog(Request $request, Response $response, array $event): bool
+{
+    return ($event['query.debug'] ?? null) === '1';
+}
+```
+
+Read path values from `route_params`:
+
+```php
+// Before: /orders/7
+$orderId = (int) basename($event['url']);
+
+// After
+$orderId = (int) $event['route_params.order'];
+```
+
 ## [0.3.0](https://github.com/Larasell-dev/chronicle/compare/v0.2.7...v0.3.0) (2026-11-03)
 
 
