@@ -10,7 +10,7 @@ import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
-const dir = "breaking-changes";
+const notesDirectory = "breaking-changes";
 
 const isNote = (name) => name.endsWith(".md") && !name.startsWith("_") && name !== "AGENT.md";
 
@@ -25,16 +25,16 @@ function check() {
 
   const added = execFileSync(
     "git",
-    ["diff", "--name-only", "--diff-filter=A", `${base}...HEAD`, "--", dir],
+    ["diff", "--name-only", "--diff-filter=A", `${base}...HEAD`, "--", notesDirectory],
     { cwd: root, encoding: "utf8" },
   )
     .split("\n")
-    .filter((file) => path.dirname(file) === dir && isNote(path.basename(file)));
+    .filter((file) => path.dirname(file) === notesDirectory && isNote(path.basename(file)));
   const breaking = /^\w+!:/.test(title);
 
   if (breaking && added.length === 0) {
     fail(
-      `The title marks this pull request as breaking, but it adds no file to ${dir}/. Copy ${dir}/_template.md and describe how to upgrade.`,
+      `The title marks this pull request as breaking, but it adds no file to ${notesDirectory}/. Copy ${notesDirectory}/_template.md and describe how to upgrade.`,
     );
   }
   if (!breaking && added.length > 0) {
@@ -69,7 +69,7 @@ function toChangelog(markdown) {
 }
 
 function bundle() {
-  const files = readdirSync(path.join(root, dir)).filter(isNote).sort();
+  const files = readdirSync(path.join(root, notesDirectory)).filter(isNote).sort();
   if (files.length === 0) {
     console.log("No breaking changes to bundle.");
     return;
@@ -83,13 +83,13 @@ function bundle() {
 
   // The guide goes at the end of the newest version, after release-please's own sections.
   const end = versions[1] ?? changelog.length;
-  const notes = files.map((file) => toChangelog(readFileSync(path.join(root, dir, file), "utf8")));
+  const notes = files.map((file) => toChangelog(readFileSync(path.join(root, notesDirectory, file), "utf8")));
   const guide = `### Upgrade guide\n\n${notes.join("\n\n")}\n`;
   const head = changelog.slice(0, end).trimEnd();
   const rest = changelog.slice(end);
 
   writeFileSync(changelogPath, `${head}\n\n${guide}${rest && `\n${rest}`}`);
-  for (const file of files) rmSync(path.join(root, dir, file));
+  for (const file of files) rmSync(path.join(root, notesDirectory, file));
 
   console.log(`Bundled ${files.length} breaking change(s) into CHANGELOG.md: ${files.join(", ")}`);
 }

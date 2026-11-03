@@ -25,8 +25,8 @@ php_packages=(
 
 install_php() {
   local missing=()
-  for pkg in "${php_packages[@]}"; do
-    dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed" || missing+=("$pkg")
+  for package in "${php_packages[@]}"; do
+    dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed" || missing+=("$package")
   done
   if [ ${#missing[@]} -eq 0 ]; then
     echo "PHP $php_version packages already installed"
@@ -50,12 +50,12 @@ install_composer() {
     echo "Composer already installed: $(composer --version 2>/dev/null)"
     return
   fi
-  local tmp
-  tmp="$(mktemp -d)"
-  curl -fsSL https://getcomposer.org/installer -o "$tmp/composer-setup.php"
-  php "$tmp/composer-setup.php" --quiet --install-dir="$tmp" --filename=composer
-  sudo install -m 0755 "$tmp/composer" /usr/local/bin/composer
-  rm -rf "$tmp"
+  local installer_directory
+  installer_directory="$(mktemp -d)"
+  curl -fsSL https://getcomposer.org/installer -o "$installer_directory/composer-setup.php"
+  php "$installer_directory/composer-setup.php" --quiet --install-dir="$installer_directory" --filename=composer
+  sudo install -m 0755 "$installer_directory/composer" /usr/local/bin/composer
+  rm -rf "$installer_directory"
 }
 
 install_dependencies() {
