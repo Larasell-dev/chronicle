@@ -69,9 +69,17 @@ class RequestLogger
     protected function routeName(Request $request): ?string
     {
         $route = $request->route();
-        $name = $route?->getName();
+        $name = $route?->getName() ?? '';
 
-        return $name === null || $name === '' || str_ends_with($name, '.') ? $route?->uri() : $name;
+        if ($name === '') {
+            return $route?->uri();
+        }
+
+        if (str_ends_with($name, '.')) {
+            return $route->uri();
+        }
+
+        return $name;
     }
 
     protected function levelForStatus(int $status): Level
