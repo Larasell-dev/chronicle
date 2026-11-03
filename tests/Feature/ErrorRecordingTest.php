@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
+use Larasell\Chronicle\Exceptions\StructuredUnexpectedValueException;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Larasell\Chronicle\WideEvents\Chronicle;
@@ -147,6 +148,59 @@ it('merges exception context and lets call-site context win', function () {
     expect($entry['correlation_id'])->toBe('pay_123')
         ->and($entry['shared'])->toBe('from-call-site')
         ->and($entry['error.code'])->toBe('billing.declined');
+});
+
+it('throws in debug mode when an exception context is not an array', function () {
+    // Arrange
+    chronicleTestHandler();
+    config()->set('app.debug', true);
+
+    $exception = new class('boom') extends RuntimeException
+    {
+        public function context(): string
+        {
+            return 'order 7';
+        }
+    };
+
+    // Act
+    try {
+        app(Chronicle::class)->recordError($exception);
+    } catch (StructuredUnexpectedValueException $thrown) {
+        // Assert
+        expect($thrown->errorCode())->toBe('chronicle.error.invalid-context')
+            ->and($thrown->getMessage())->toBe('RuntimeException@anonymous::context() returned string, not an array')
+            ->and($thrown->errorFix())->toBe('Return an array from RuntimeException@anonymous::context()');
+
+        return;
+    }
+
+    throw new UnexpectedValueException('recordError() should have thrown.');
+});
+
+it('records the error with the reason outside debug mode when an exception context is not an array', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+    config()->set('app.debug', false);
+
+    $exception = new class('boom') extends RuntimeException
+    {
+        public function context(): string
+        {
+            return 'order 7';
+        }
+    };
+
+    // Act
+    app(Chronicle::class)->recordError($exception);
+
+    // Assert
+    expect(chronicleEntries($handler)[0])
+        ->toMatchArray([
+            'type' => 'error',
+            'error.message' => 'boom',
+            'chronicle.context_error' => 'RuntimeException@anonymous::context() returned string, not an array',
+        ]);
 });
 
 it('does not merge context from exceptions without a context method', function () {

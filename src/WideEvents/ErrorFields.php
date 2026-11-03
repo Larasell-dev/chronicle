@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Larasell\Chronicle\WideEvents;
 
 use Larasell\Chronicle\Exceptions\StructuredException;
+use Larasell\Chronicle\Exceptions\StructuredUnexpectedValueException;
 use Throwable;
 
 /**
@@ -35,6 +36,11 @@ final class ErrorFields
     }
 
     /**
+     * The fields of the exception's context() method, the method Laravel's own reporting reads.
+     * One that doesn't return an array is a bug in the app. In debug mode that throws, so the
+     * developer sees it. In production the error is still recorded, since failing here would lose
+     * the very error being reported, and chronicle.context_error says why its context is missing.
+     *
      * @return array<mixed>
      */
     private static function exceptionContext(Throwable $exception): array
@@ -46,7 +52,19 @@ final class ErrorFields
         $context = $exception->context();
 
         if (! is_array($context)) {
-            return [];
+            $method = get_debug_type($exception).'::context()';
+            $problem = "{$method} returned ".get_debug_type($context).', not an array';
+
+            if (app()->hasDebugModeEnabled()) {
+                throw new StructuredUnexpectedValueException(
+                    code: 'chronicle.error.invalid-context',
+                    message: $problem,
+                    why: 'Chronicle merges the context of an exception into its error event as fields, which needs an array',
+                    fix: "Return an array from {$method}",
+                );
+            }
+
+            return ['chronicle.context_error' => $problem];
         }
 
         // Chronicle::event() bounds every value of an event, these included.
