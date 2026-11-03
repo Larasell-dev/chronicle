@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle;
 
+use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
@@ -191,8 +192,8 @@ class ChronicleServiceProvider extends ServiceProvider
 
     /**
      * The fields of every event, named as OpenTelemetry's resource attributes, read once at boot
-     * like the channels: Chronicle's own, then chronicle.fields. Anything malformed stops the app
-     * at boot, rather than silently logging events that can't be told apart.
+     * like the channels: Chronicle's own, then chronicle.fields. A malformed setting is read
+     * through readSetting(), so it throws in development and is ignored with a warning elsewhere.
      *
      * @return array<string, scalar>
      */
@@ -200,12 +201,58 @@ class ChronicleServiceProvider extends ServiceProvider
     {
         // Null ones included, so the app can't set service.version through fields either.
         $chronicleFields = [
-            'service.name' => $this->optionalString('service') ?? Config::string('app.name', 'laravel'),
-            'service.version' => $this->optionalString('release'),
-            'deployment.environment' => $this->optionalString('environment') ?? Config::string('app.env', 'production'),
+            'service.name' => $this->readSetting(null, fn (): ?string => $this->optionalString('service')) ?? Config::string('app.name', 'laravel'),
+            'service.version' => $this->readSetting(null, fn (): ?string => $this->optionalString('release')),
+            'deployment.environment' => $this->readSetting(null, fn (): ?string => $this->optionalString('environment')) ?? Config::string('app.env', 'production'),
             'host.name' => $this->hostName(),
             'process.runtime.version' => PHP_VERSION,
         ];
+        $appFields = $this->readSetting([], fn (): array => $this->appFieldsBeside($chronicleFields));
+
+        return [...array_filter($chronicleFields, fn (?string $value): bool => $value !== null), ...$appFields];
+    }
+
+    /**
+     * Reads one setting of the global fields, or returns $ignored when it is malformed. Logging
+     * must never take the app down, so only in debug mode and in the local and testing
+     * environments, where the setting can be fixed at once, does a malformed one throw, like a
+     * failed Assert. Elsewhere it goes to PHP's error log: Chronicle's own channels are what is
+     * being set up, so they can't report it.
+     *
+     * @template TSetting
+     *
+     * @param  TSetting  $ignored
+     * @param  Closure(): TSetting  $read
+     * @return TSetting
+     */
+    protected function readSetting(mixed $ignored, Closure $read): mixed
+    {
+        try {
+            return $read();
+        } catch (StructuredInvalidArgumentException $exception) {
+            if ($this->app->hasDebugModeEnabled()) {
+                throw $exception;
+            }
+
+            if ($this->app->environment('local', 'testing')) {
+                throw $exception;
+            }
+
+            error_log("Chronicle ignored a malformed setting: {$exception->getMessage()}. {$exception->errorFix()}.");
+
+            return $ignored;
+        }
+    }
+
+    /**
+     * chronicle.fields, checked against Chronicle's own fields: it may not set one of them, and
+     * together they stay within GLOBAL_FIELDS_MAX.
+     *
+     * @param  array<string, ?string>  $chronicleFields
+     * @return array<string, scalar>
+     */
+    protected function appFieldsBeside(array $chronicleFields): array
+    {
         $appFields = $this->appFields();
 
         foreach (array_keys($appFields) as $key) {
@@ -214,15 +261,14 @@ class ChronicleServiceProvider extends ServiceProvider
             }
         }
 
-        $chronicleFields = array_filter($chronicleFields, fn (?string $value): bool => $value !== null);
-        $fieldCount = count($chronicleFields) + count($appFields);
+        $fieldCount = count(array_filter($chronicleFields, fn (?string $value): bool => $value !== null)) + count($appFields);
 
         // Every event carries them, so they take room from the fields that describe the event.
         if ($fieldCount > Chronicle::GLOBAL_FIELDS_MAX) {
             throw $this->invalidFields("Chronicle has {$fieldCount} global fields, more than ".Chronicle::GLOBAL_FIELDS_MAX);
         }
 
-        return [...$chronicleFields, ...$appFields];
+        return $appFields;
     }
 
     /**
@@ -235,7 +281,7 @@ class ChronicleServiceProvider extends ServiceProvider
             return null;
         }
 
-        $host = $this->optionalString('host');
+        $host = $this->readSetting(null, fn (): ?string => $this->optionalString('host'));
 
         if ($host !== null) {
             return $host;

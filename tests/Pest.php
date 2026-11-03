@@ -21,6 +21,16 @@ function chronicleTestHandler(): TestHandler
 }
 
 /**
+ * Runs the rest of the test as production without debug mode, where Chronicle must never stop
+ * the app: failed checks and malformed config are reported instead of thrown.
+ */
+function inProduction(): void
+{
+    config()->set('app.debug', false);
+    app()->instance('env', 'production');
+}
+
+/**
  * The log file of this test's file channel, which TestCase makes fresh for every test.
  */
 function chronicleLogPath(): string

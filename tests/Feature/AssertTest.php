@@ -12,12 +12,6 @@ use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 /**
  * Makes the app look like production: no debug mode, and an environment that isn't local or testing.
  */
-function inProduction(): void
-{
-    config()->set('app.debug', false);
-    app()->instance('env', 'production');
-}
-
 it('throws a structured logic exception in tests', function () {
     // Act & Assert
     Assert::that(false, 'chronicle.assert.example', 'Something Chronicle promised is false');
