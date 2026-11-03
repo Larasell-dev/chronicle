@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Exceptions\StructuredInvalidArgumentException;
@@ -217,6 +218,25 @@ it('redacts secret keys inside lists and objects that are stored as json', funct
 
     expect($entry['items'])->toBe('[{"sku":"a1","token":"[redacted]"},{"sku":"b2","secret":"[redacted]"}]')
         ->and($entry['cards'])->toBe('[{"brand":"visa","card_number":"[redacted]"}]');
+});
+
+it('logs a query exception with the placeholders of its sql instead of the values', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    $exception = new QueryException(
+        'mysql',
+        'insert into users (email, password) values (?, ?)',
+        ['jane@example.com', 'hash-of-secret'],
+        new PDOException('SQLSTATE[HY000]: General error'),
+    );
+
+    // Act
+    app(Chronicle::class)->recordError($exception);
+
+    // Assert
+    expect(chronicleEntries($handler)[0]['error.message'])
+        ->toBe('SQLSTATE[HY000]: General error (Connection: mysql, SQL: insert into users (email, password) values (?, ?))');
 });
 
 it('lets the app redactor decide on every value after the secret keys', function () {

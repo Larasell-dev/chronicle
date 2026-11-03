@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle\WideEvents;
 
+use Illuminate\Database\QueryException;
 use Larasell\Chronicle\Exceptions\StructuredException;
 use Larasell\Chronicle\Exceptions\StructuredUnexpectedValueException;
 use Throwable;
@@ -31,12 +32,29 @@ final class ErrorFields
             'error' => [
                 'code' => $structured ? $exception->errorCode() : null,
                 'exception_code' => in_array($exceptionCode, [0, ''], true) ? null : $exceptionCode,
-                'message' => $exception->getMessage(),
+                'message' => self::message($exception),
                 'why' => $structured ? $exception->errorWhy() : null,
                 'fix' => $structured ? $exception->errorFix() : null,
                 'link' => $structured ? $exception->errorLink() : null,
             ],
         ]);
+    }
+
+    /**
+     * The exception's message. A QueryException's own message has the query's bindings filled in,
+     * which are its values: emails, password hashes, tokens. Its message is rebuilt with the SQL's
+     * placeholders instead. The database's own message, which comes first, can still quote a
+     * value, e.g. the entry that broke a unique index.
+     */
+    private static function message(Throwable $exception): string
+    {
+        $previous = $exception->getPrevious();
+
+        if (! $exception instanceof QueryException || $previous === null) {
+            return $exception->getMessage();
+        }
+
+        return $previous->getMessage().' (Connection: '.$exception->getConnectionName().', SQL: '.$exception->getSql().')';
     }
 
     /**
