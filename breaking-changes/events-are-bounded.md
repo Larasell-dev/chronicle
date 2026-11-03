@@ -3,11 +3,14 @@
 Chronicle used to log a string field or a nested array at whatever size the app passed. One large
 field in `Context` could make every log line of a request megabytes long. Lists were the only
 values that had a limit, and they were cut at byte 1,000 with `substr()`, which could leave
-invalid JSON or split a UTF-8 character. Now every part of an event has a limit:
+invalid JSON or split a UTF-8 character. Now every part of an event has a limit. Each byte limit
+counts the bytes a value takes in the log line, escapes included, so a string of quotes or control
+characters keeps fewer characters than one of letters, and no event's line is longer than
+`Chronicle::EVENT_BYTES_MAX` bytes, about 311 KB:
 
 | What | Limit | What happens past it |
 |---|---|---|
-| A string value | 1,000 bytes (`Chronicle::VALUE_BYTES_MAX`) | Cut on a UTF-8 character boundary |
+| A string value | 1,000 bytes (`Chronicle::VALUE_BYTES_MAX`) | Cut to the longest prefix that fits, on a UTF-8 character boundary |
 | A list, stored as JSON | 1,000 bytes | Whole elements are left out, so it stays valid JSON, and `<key>_count` holds the full count |
 | A key | 200 bytes | Cut on a character boundary |
 | Nesting | 32 levels | Deeper arrays are stored as one JSON value |
@@ -21,7 +24,9 @@ invalid JSON or split a UTF-8 character. Now every part of an event has a limit:
   fewer elements, plus a `<key>_count` field.
 - Apps with more than 256 fields in one event, Context included.
 
-Apps whose events stay within these limits see no difference.
+Apps whose events stay within these limits see no difference, except that log lines now contain
+non-ASCII characters as they are, e.g. `ü` instead of `\u00fc`, and `/` instead of `\/` inside
+list values. JSON readers decode both the same way.
 
 ## How to upgrade
 

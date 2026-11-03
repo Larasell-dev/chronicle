@@ -20,6 +20,7 @@ use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
 use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Enums\Level;
+use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
@@ -497,6 +498,65 @@ it('truncates long string fields', function () {
     expect(chronicleEntries($handler)[0]['body'])->toBe(str_repeat('x', 1000));
 });
 
+it('cuts strings to the longest prefix that fits in 1000 bytes of the log line', function (string $character, int $keptCount) {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('big', ['body' => str_repeat($character, 2000)]);
+
+    // Assert
+    $line = $handler->getRecords()[0]->message;
+
+    expect(chronicleEntry($line)['body'])->toBe(str_repeat($character, $keptCount))
+        ->and($line)->toContain('"body":"'.substr(json_encode(str_repeat($character, $keptCount), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), 1));
+})->with([
+    // Written as is: 1,000 characters of 1 byte.
+    'ascii' => ['x', 1000],
+    // Written as is: 500 characters of 2 bytes, one more would take 1,002.
+    'umlaut' => ['ü', 500],
+    // Written as \", 2 bytes each.
+    'quote' => ['"', 500],
+    // Written as \u0001, 6 bytes each: 166 × 6 = 996, one more would take 1,002.
+    'control byte' => ["\x01", 166],
+]);
+
+it('cuts keys to the longest prefix that fits in 200 bytes of the log line', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('big', [str_repeat("\x01", 300) => 1]);
+
+    // Assert
+    // \u0001 takes 6 bytes: 33 × 6 = 198, one more would take 204.
+    expect(chronicleEntries($handler)[0])->toHaveKey(str_repeat("\x01", 33));
+});
+
+it('keeps the largest possible event within event bytes max and three of them within a posthog batch', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // 253 fields, with the timestamp, the type and chronicle.fields_dropped the most an event has,
+    // each with a key and a value of control bytes, the characters that take the most bytes to write.
+    $fields = [];
+
+    foreach (range(1, 300) as $index) {
+        $fields[str_pad((string) $index, 300, "\x01")] = str_repeat("\x01", 2000);
+    }
+
+    // Act
+    app(Chronicle::class)->record(str_repeat("\x01", 2000), $fields);
+
+    // Assert
+    $line = $handler->getRecords()[0]->message;
+
+    // Before the limits counted escapes, this line took 1.8 MB.
+    expect(strlen($line))->toBeGreaterThan(290_000)
+        ->and(strlen($line))->toBeLessThanOrEqual(Chronicle::EVENT_BYTES_MAX)
+        ->and(3 * Chronicle::EVENT_BYTES_MAX)->toBeLessThanOrEqual(PostHogHandler::BATCH_BYTES_MAX);
+});
+
 it('stores arrays nested deeper than 32 levels as one json value, however deep', function () {
     // Arrange
     $handler = chronicleTestHandler();
@@ -530,10 +590,11 @@ it('keeps truncated lists valid json and records their full count', function () 
     $json = Arr::string($entry, 'user.tags');
     $kept = chronicleEntry($json);
 
-    // The kept tags are the longest prefix of the list whose JSON fits in 1,000 bytes.
+    // The kept tags are the longest prefix of the list whose JSON fits in 1,000 bytes as written
+    // in the log line, where it is a string, so every quote around a tag is escaped again.
     expect($kept)->toBe(array_slice($tags, 0, count($kept)))
-        ->and(strlen($json))->toBeLessThanOrEqual(1000)
-        ->and(strlen(json_encode(array_slice($tags, 0, count($kept) + 1), JSON_THROW_ON_ERROR)))->toBeGreaterThan(1000)
+        ->and(lineBytes($json))->toBeLessThanOrEqual(1000)
+        ->and(lineBytes(json_encode(array_slice($tags, 0, count($kept) + 1), JSON_THROW_ON_ERROR)))->toBeGreaterThan(1000)
         ->and($entry['user.tags_count'])->toBe(200);
 });
 

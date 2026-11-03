@@ -20,14 +20,22 @@ use Throwable;
 class Chronicle
 {
     /**
-     * The most bytes a string value, or an array encoded as JSON, keeps. Counted in bytes because
-     * the cost is in bytes: log lines on disk and the PostHog payload. Strings are cut on UTF-8
-     * character boundaries, so a value can end up to three bytes shorter.
+     * The most bytes a string value, or an array encoded as JSON, takes in the log line, counted
+     * as encodeLine() writes it, escapes included, quotes excluded. Counted in bytes because the
+     * cost is in bytes: log lines on disk and the PostHog payload. Strings are cut on UTF-8
+     * character boundaries, so a value can end up to five bytes shorter, the most an escape
+     * like \u0001 takes beyond one byte.
      */
     public const VALUE_BYTES_MAX = 1000;
 
-    /** The most bytes a dotted key keeps, so keys can't make an event large either. */
+    /** The most bytes a dotted key takes in the log line, counted like VALUE_BYTES_MAX. */
     private const KEY_BYTES_MAX = 200;
+
+    /**
+     * The flags of every json_encode, so a string is measured exactly as it is written. Unicode
+     * and slashes unescaped, since escaping them would cost up to three times the bytes.
+     */
+    private const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR;
 
     /**
      * The most levels flatten() walks into nested arrays. Deeper arrays are stored as one JSON
@@ -37,10 +45,17 @@ class Chronicle
 
     /**
      * The most fields an event has, chronicle.fields_dropped included. A wide event rarely needs
-     * more than a few dozen fields, and together with the byte limits above this bounds an event
-     * at roughly FIELDS_MAX × (KEY_BYTES_MAX + VALUE_BYTES_MAX) before JSON escaping, about 300 KB.
+     * more than a few dozen fields, and together with the byte limits above this bounds an event:
+     * see EVENT_BYTES_MAX.
      */
     private const FIELDS_MAX = 256;
+
+    /**
+     * The most bytes an event's log line has, about 311 KB: FIELDS_MAX fields, plus the two of
+     * chronicle.assertion_failed, each written as "key":"value", with 6 bytes for the quotes, the
+     * colon and the comma, plus the braces. PostHogHandler::BATCH_BYTES_MAX fits three of them.
+     */
+    public const EVENT_BYTES_MAX = (self::FIELDS_MAX + 2) * (self::KEY_BYTES_MAX + self::VALUE_BYTES_MAX + 6) + 2;
 
     /**
      * Maps the error code of each failed assertion to its message, on an event built outside
@@ -231,7 +246,7 @@ class Chronicle
     ): array {
         $header = [
             'timestamp' => now()->toIso8601String(),
-            'type' => mb_strcut($type, 0, self::VALUE_BYTES_MAX, 'UTF-8'),
+            'type' => $this->cut($type, self::VALUE_BYTES_MAX),
         ];
         // Paths left by an event() that threw before it took them, e.g. on a failed assertion.
         $this->takeRedactedPaths();
@@ -301,14 +316,15 @@ class Chronicle
     /**
      * The first field that breaks the bounds of an event, described, or null when every field
      * keeps them: a key of at most KEY_BYTES_MAX bytes, and a value that is null, a bool, an int,
-     * a float json_encode can encode, or a string of at most VALUE_BYTES_MAX bytes.
+     * a float json_encode can encode, or a string of at most VALUE_BYTES_MAX bytes, both counted
+     * as they are written in the log line.
      *
      * @param  array<mixed>  $fields
      */
     private function firstUnboundedField(array $fields): ?string
     {
         foreach ($fields as $key => $value) {
-            $keyBytes = strlen((string) $key);
+            $keyBytes = $this->encodedBytes((string) $key);
 
             if ($keyBytes > self::KEY_BYTES_MAX) {
                 return "a key of {$keyBytes} bytes, more than KEY_BYTES_MAX (".self::KEY_BYTES_MAX.')';
@@ -327,7 +343,7 @@ class Chronicle
     private function unboundedValue(mixed $value): ?string
     {
         if (is_string($value)) {
-            $valueBytes = strlen($value);
+            $valueBytes = $this->encodedBytes($value);
 
             if ($valueBytes > self::VALUE_BYTES_MAX) {
                 return "a string of {$valueBytes} bytes, more than VALUE_BYTES_MAX (".self::VALUE_BYTES_MAX.')';
@@ -523,6 +539,12 @@ class Chronicle
 
         Assert::that(str_starts_with($line, '{'), 'chronicle.assert.event-json-object', "encodeEvent() built a line that isn't a JSON object");
         Assert::that(! str_contains($line, "\n"), 'chronicle.assert.event-one-line', 'encodeEvent() built an event with a line break in it');
+        // The other side of the byte limits flatten() and encodeArray() keep, on the bytes written.
+        Assert::that(
+            strlen($line) <= self::EVENT_BYTES_MAX,
+            'chronicle.assert.event-bytes',
+            'encodeEvent() built '.strlen($line).' bytes, more than EVENT_BYTES_MAX ('.self::EVENT_BYTES_MAX.')',
+        );
 
         return $line;
     }
@@ -532,18 +554,14 @@ class Chronicle
      */
     private function encodeLine(array $event): string
     {
-        $flags = JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR;
-
         try {
-            return json_encode($event, $flags);
+            return json_encode($event, self::JSON_FLAGS);
         } catch (Throwable $throwable) {
             return json_encode([
                 'timestamp' => is_string($event['timestamp'] ?? null) ? $event['timestamp'] : now()->toIso8601String(),
                 'type' => is_string($event['type'] ?? null) ? $event['type'] : 'unknown',
-                'chronicle.encode_error' => mb_strcut(
-                    $throwable::class.': '.$throwable->getMessage(), 0, self::VALUE_BYTES_MAX, 'UTF-8',
-                ),
-            ], $flags);
+                'chronicle.encode_error' => $this->cut($throwable::class.': '.$throwable->getMessage(), self::VALUE_BYTES_MAX),
+            ], self::JSON_FLAGS);
         }
     }
 
@@ -582,7 +600,7 @@ class Chronicle
 
         while ($stack !== []) {
             [$path, $lastKey, $value, $depth] = array_pop($stack);
-            $key = mb_strcut($path, 0, self::KEY_BYTES_MAX, 'UTF-8');
+            $key = $this->cut($path, self::KEY_BYTES_MAX);
             // Before anything else looks at the value, so a secret is never even measured.
             $value = $this->redacted($path, $lastKey, $value);
 
@@ -599,7 +617,7 @@ class Chronicle
             }
 
             if (is_string($value)) {
-                $flattened[$key] = mb_strcut($value, 0, self::VALUE_BYTES_MAX, 'UTF-8');
+                $flattened[$key] = $this->cut($value, self::VALUE_BYTES_MAX);
 
                 continue;
             }
@@ -623,7 +641,7 @@ class Chronicle
 
                 // The JSON only holds the elements that fit, so the full count says how many are missing.
                 if ($keptCount < count($value)) {
-                    $flattened[mb_strcut($path.'_count', 0, self::KEY_BYTES_MAX, 'UTF-8')] = count($value);
+                    $flattened[$this->cut($path.'_count', self::KEY_BYTES_MAX)] = count($value);
                 }
 
                 continue;
@@ -656,7 +674,7 @@ class Chronicle
 
             foreach ($this->redactedWords as $redactedWords) {
                 if (str_contains($words, $redactedWords)) {
-                    $this->redactedPaths[] = mb_strcut($path, 0, self::KEY_BYTES_MAX, 'UTF-8');
+                    $this->redactedPaths[] = $this->cut($path, self::KEY_BYTES_MAX);
 
                     return self::REDACTED;
                 }
@@ -670,7 +688,7 @@ class Chronicle
         $redacted = $this->redactor->redact($path, $value);
 
         if ($redacted !== $value) {
-            $this->redactedPaths[] = mb_strcut($path, 0, self::KEY_BYTES_MAX, 'UTF-8');
+            $this->redactedPaths[] = $this->cut($path, self::KEY_BYTES_MAX);
         }
 
         return $redacted;
@@ -802,7 +820,8 @@ class Chronicle
     }
 
     /**
-     * Encodes an array as JSON of at most VALUE_BYTES_MAX bytes. Elements that don't fit are left
+     * Encodes an array as JSON that takes at most VALUE_BYTES_MAX bytes in the log line, where it
+     * is a string, so its quotes are escaped again. Elements that don't fit are left
      * out whole, never cut, so the value stays valid JSON. An element that can't be encoded, such
      * as INF or one nested deeper than DEPTH_MAX, becomes null, and the reason names the first one.
      *
@@ -819,10 +838,12 @@ class Chronicle
 
         foreach ($array as $key => $element) {
             [$part, $reason] = $this->encodeElement($element);
-            $keyPrefix = $isList ? '' : json_encode((string) $key, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR).':';
+            $keyPrefix = $isList ? '' : json_encode((string) $key, self::JSON_FLAGS).':';
             $part = $keyPrefix.$part;
 
-            $jsonBytesNext = $jsonBytes + strlen($part) + ($parts === [] ? 0 : 1);
+            // Escaping works per character, so the parts' escaped sizes add up. The brackets and
+            // commas need no escaping.
+            $jsonBytesNext = $jsonBytes + $this->encodedBytes($part) + ($parts === [] ? 0 : 1);
 
             if ($jsonBytesNext > self::VALUE_BYTES_MAX) {
                 break;
@@ -840,9 +861,9 @@ class Chronicle
         $json = $isList ? '['.implode(',', $parts).']' : '{'.implode(',', $parts).'}';
 
         Assert::that(
-            strlen($json) <= self::VALUE_BYTES_MAX,
+            $this->encodedBytes($json) <= self::VALUE_BYTES_MAX,
             'chronicle.assert.value-bounds',
-            'encodeArray() built '.strlen($json).' bytes of JSON, more than VALUE_BYTES_MAX ('.self::VALUE_BYTES_MAX.')',
+            'encodeArray() built JSON of '.$this->encodedBytes($json).' bytes in the line, more than VALUE_BYTES_MAX ('.self::VALUE_BYTES_MAX.')',
         );
         Assert::that(
             count($parts) <= count($array),
@@ -895,6 +916,52 @@ class Chronicle
      */
     private function encodeJson(mixed $value): string
     {
-        return json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR, self::DEPTH_MAX);
+        return json_encode($value, self::JSON_FLAGS, self::DEPTH_MAX);
+    }
+
+    /**
+     * The bytes a string takes in the log line, between its quotes, as encodeLine() writes it.
+     */
+    private function encodedBytes(string $value): int
+    {
+        return strlen(json_encode($value, self::JSON_FLAGS)) - 2;
+    }
+
+    /**
+     * The longest prefix of the string, cut on a character boundary, that takes at most $bytesMax
+     * bytes in the log line. Escaping never makes a string shorter, so that prefix lies within the
+     * first $bytesMax raw bytes, and a binary search over those finds it in about ten encodes.
+     */
+    private function cut(string $value, int $bytesMax): string
+    {
+        $value = mb_strcut($value, 0, $bytesMax, 'UTF-8');
+
+        if ($this->encodedBytes($value) <= $bytesMax) {
+            return $value;
+        }
+
+        // The prefix of $fits raw bytes fits, the one of $tooLong doesn't.
+        $fits = 0;
+        $tooLong = strlen($value);
+
+        while ($tooLong - $fits > 1) {
+            $middle = intdiv($fits + $tooLong, 2);
+
+            if ($this->encodedBytes(mb_strcut($value, 0, $middle, 'UTF-8')) <= $bytesMax) {
+                $fits = $middle;
+            } else {
+                $tooLong = $middle;
+            }
+        }
+
+        $cut = mb_strcut($value, 0, $fits, 'UTF-8');
+
+        Assert::that(
+            $this->encodedBytes($cut) <= $bytesMax,
+            'chronicle.assert.value-bounds',
+            'cut() kept '.$this->encodedBytes($cut)." bytes in the line, more than {$bytesMax}",
+        );
+
+        return $cut;
     }
 }
