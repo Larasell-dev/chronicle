@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb (Debian 12) to test and format this package.
+# Must stay non-interactive and idempotent: stale snapshots rerun it.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+step() {
+  local label="$1"
+  shift
+  local start=$SECONDS
+  echo "==> $label"
+  "$@"
+  echo "<== $label ($((SECONDS - start))s)"
+}
+
+php_version=8.4
+php_packages=(
+  "php$php_version-cli"
+  "php$php_version-curl"
+  "php$php_version-mbstring"
+  "php$php_version-xml"
+  "php$php_version-zip"
+)
+
+install_php() {
+  local missing=()
+  for pkg in "${php_packages[@]}"; do
+    dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed" || missing+=("$pkg")
+  done
+  if [ ${#missing[@]} -eq 0 ]; then
+    echo "PHP $php_version packages already installed"
+    return
+  fi
+
+  # Debian 12 only ships PHP 8.2; composer.json requires ^8.4.
+  if [ ! -f /etc/apt/sources.list.d/php.list ]; then
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl lsb-release
+    sudo curl -fsSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
+    echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" |
+      sudo tee /etc/apt/sources.list.d/php.list >/dev/null
+  fi
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends unzip "${missing[@]}"
+}
+
+install_composer() {
+  if command -v composer >/dev/null; then
+    echo "Composer already installed: $(composer --version 2>/dev/null)"
+    return
+  fi
+  local tmp
+  tmp="$(mktemp -d)"
+  curl -fsSL https://getcomposer.org/installer -o "$tmp/composer-setup.php"
+  php "$tmp/composer-setup.php" --quiet --install-dir="$tmp" --filename=composer
+  sudo install -m 0755 "$tmp/composer" /usr/local/bin/composer
+  rm -rf "$tmp"
+}
+
+install_dependencies() {
+  # composer.lock is gitignored, so a stale snapshot may carry a lock that no
+  # longer matches composer.json. Re-resolve in that case instead of installing
+  # outdated packages.
+  if [ -f composer.lock ] &&
+    ! composer validate --no-check-all --no-check-publish --no-check-version >/dev/null 2>&1; then
+    composer update --prefer-dist --no-interaction --no-progress
+  else
+    composer install --prefer-dist --no-interaction --no-progress
+  fi
+}
+
+step "Install PHP $php_version" install_php
+step "Install Composer" install_composer
+step "Install Composer dependencies" install_dependencies
