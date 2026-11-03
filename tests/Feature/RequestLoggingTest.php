@@ -155,6 +155,18 @@ it('logs a failed request as a single event with the exception merged', function
         ->and($entry['error.message'])->toBe('boom');
 });
 
+it('measures the duration in milliseconds from an hrtime start', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    // Started 25 ms ago on the monotonic clock.
+    app(RequestLogger::class)->log(Request::create('/cart'), response('ok'), hrtime(true) - 25_000_000);
+
+    // Assert
+    expect(chronicleEntries($handler)[0]['duration_ms'])->toBeGreaterThanOrEqual(25.0)->toBeLessThan(1000.0);
+});
+
 it('merges the exception from a json error response', function () {
     // Arrange
     $handler = chronicleTestHandler();
@@ -163,7 +175,7 @@ it('merges the exception from a json error response', function () {
         ->withException(new RuntimeException('boom'));
 
     // Act
-    app(RequestLogger::class)->log(Request::create('/contact', 'POST'), $response, microtime(true));
+    app(RequestLogger::class)->log(Request::create('/contact', 'POST'), $response, hrtime(true));
 
     // Assert
     $entry = chronicleEntries($handler)[0];
@@ -721,5 +733,5 @@ it('throws when the configured sampler does not implement the interface', functi
     config()->set('chronicle.sampling', NotASampler::class);
 
     // Act & Assert
-    app(RequestLogger::class)->log(request(), response('ok'), microtime(true));
+    app(RequestLogger::class)->log(request(), response('ok'), hrtime(true));
 })->throws(InvalidSampler::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');
