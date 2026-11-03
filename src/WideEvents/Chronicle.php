@@ -61,6 +61,12 @@ class Chronicle
     private ?array $addedFields = null;
 
     /**
+     * Whether the warning that LogRequests ran twice in one request was logged. Once per process,
+     * since a middleware added twice runs twice on every request.
+     */
+    private bool $nestedRequestWarned = false;
+
+    /**
      * The keys of chronicle.redact as words(), so a key is matched without normalizing them again.
      *
      * @var list<string>
@@ -94,13 +100,42 @@ class Chronicle
     }
 
     /**
-     * Starts collecting add()'s fields for the request that LogRequests is about to handle.
+     * Starts collecting add()'s fields for the request that LogRequests is about to handle, and
+     * returns true. Returns false when LogRequests is already logging this request, because it
+     * was added twice, e.g. by the app and by a package: the request is then logged once, by the
+     * outer LogRequests, and a warning says so once per process. Logging it again would write two
+     * events, and the inner id would replace the one in the X-Request-Id header.
      *
      * @internal
      */
-    public function beginRequest(): void
+    public function beginRequest(): bool
     {
-        $this->addedFields = [];
+        if ($this->addedFields === null) {
+            $this->addedFields = [];
+
+            return true;
+        }
+
+        if (! $this->nestedRequestWarned) {
+            $this->nestedRequestWarned = true;
+
+            Log::warning('Chronicle\'s LogRequests middleware runs twice in one request, so it logs the request once and skips the second run. Add LogRequests once, to the global middleware of the app; packages should not add it.', [
+                'error.code' => 'chronicle.request.logged-twice',
+            ]);
+        }
+
+        return false;
+    }
+
+    /**
+     * Stops collecting add()'s fields, once LogRequests is done with the request, also when
+     * handling it threw.
+     *
+     * @internal
+     */
+    public function endRequest(): void
+    {
+        $this->addedFields = null;
     }
 
     /**
@@ -125,9 +160,8 @@ class Chronicle
     }
 
     /**
-     * Records the event of one HTTP request, for RequestLogger, with the fields add() collected,
-     * and stops collecting them. $shouldLog sees the finished event, so a sampler decides on
-     * exactly what would be written.
+     * Records the event of one HTTP request, for RequestLogger, with the fields add() collected.
+     * $shouldLog sees the finished event, so a sampler decides on exactly what would be written.
      *
      * @internal
      *
@@ -142,10 +176,7 @@ class Chronicle
         Closure $shouldLog,
         array $assertionFailures = [],
     ): void {
-        $added = $this->addedFields ?? [];
-        $this->addedFields = null;
-
-        $event = $this->event('request', $errorFields, $requestFields, $assertionFailures, $added);
+        $event = $this->event('request', $errorFields, $requestFields, $assertionFailures, $this->addedFields ?? []);
 
         if ($shouldLog($event) === false) {
             return;

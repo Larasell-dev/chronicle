@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Context;
@@ -886,3 +888,45 @@ it('throws when the configured sampler does not implement the interface', functi
     // Act & Assert
     app(RequestLogger::class);
 })->throws(InvalidSampler::class, 'chronicle.sampler must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');
+
+it('logs a request once and warns once when log requests is added twice', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+    config()->set('logging.default', 'app_test');
+
+    $kernel = app(Kernel::class);
+
+    if (! $kernel instanceof HttpKernel) {
+        throw new UnexpectedValueException('The test app has no HTTP kernel.');
+    }
+
+    // The app adds it globally, and a package adds it to its route too.
+    $kernel->prependMiddleware(LogRequests::class);
+    Route::get('/store/api/v1/products', function () {
+        app(Chronicle::class)->add('storefront.id', 3);
+
+        return 'ok';
+    })->middleware(LogRequests::class);
+
+    // Act
+    $first = $this->get('/store/api/v1/products');
+    $second = $this->get('/store/api/v1/products');
+
+    // Assert
+    $warnings = array_values(array_filter(
+        $handler->getRecords(),
+        fn (LogRecord $record): bool => $record->level === MonologLevel::Warning,
+    ));
+    $events = array_map(
+        fn (LogRecord $record): array => chronicleEntry($record->message),
+        array_values(array_filter($handler->getRecords(), fn (LogRecord $record): bool => $record->channel === 'test')),
+    );
+
+    expect($events)->toHaveCount(2)
+        ->and($events[0]['request.id'])->toBe($first->headers->get('X-Request-Id'))
+        ->and($events[1]['request.id'])->toBe($second->headers->get('X-Request-Id'))
+        ->and($events[0]['storefront.id'])->toBe(3)
+        ->and($warnings)->toHaveCount(1)
+        ->and($warnings[0]->message)->toContain('LogRequests middleware runs twice in one request')
+        ->and($warnings[0]->context['error.code'])->toBe('chronicle.request.logged-twice');
+});
