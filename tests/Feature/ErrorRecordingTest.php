@@ -69,6 +69,42 @@ it('records domain exceptions built through the structured error constructor', f
         ->and($entry['error.fix'])->toBe('Resend the existing invitation or remove it first');
 });
 
+it('records structured exceptions thrown inline', function (string $class, string $base) {
+    $handler = errorTestHandler();
+    $previous = new RuntimeException('network down');
+
+    try {
+        throw new $class(
+            code: 'billing.declined',
+            message: 'Payment failed',
+            why: 'Issuer declined the charge',
+            fix: 'Try a different card',
+            link: 'https://docs.example.com/errors#billing-declined',
+            previous: $previous,
+        );
+    } catch (StructuredException $e) {
+        app(Chronicle::class)->recordError($e);
+    }
+
+    $entry = errorEntries($handler)[0];
+
+    expect($e)->toBeInstanceOf($base)
+        ->and($e->getPrevious())->toBe($previous)
+        ->and($entry['error.code'])->toBe('billing.declined')
+        ->and($entry['error.message'])->toBe('Payment failed')
+        ->and($entry['error.why'])->toBe('Issuer declined the charge')
+        ->and($entry['error.fix'])->toBe('Try a different card')
+        ->and($entry['error.link'])->toBe('https://docs.example.com/errors#billing-declined');
+})->with(array_map(
+    fn (string $base) => ['Larasell\\Chronicle\\Exceptions\\Structured'.$base, $base],
+    [
+        'LogicException', 'BadFunctionCallException', 'BadMethodCallException', 'DomainException',
+        'InvalidArgumentException', 'LengthException', 'OutOfRangeException',
+        'RuntimeException', 'OutOfBoundsException', 'OverflowException', 'RangeException',
+        'UnderflowException', 'UnexpectedValueException',
+    ],
+));
+
 it('degrades to a stable shape for plain throwables', function () {
     $handler = errorTestHandler();
 
