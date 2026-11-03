@@ -16,7 +16,12 @@ beforeEach(function () {
 function requestIdTestHandler(): TestHandler
 {
     config()->set('chronicle.enabled', true);
-    config()->set('chronicle.channel', 'chronicle_request_id_test');
+    // Chronicle and the app's own log lines share one handler, through a stack of the app channel.
+    config()->set('chronicle.default', 'test');
+    config()->set('chronicle.channels.test', [
+        'driver' => 'stack',
+        'channels' => ['chronicle_request_id_test'],
+    ]);
     config()->set('logging.channels.chronicle_request_id_test', [
         'driver' => 'monolog',
         'handler' => TestHandler::class,
