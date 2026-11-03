@@ -24,10 +24,14 @@ class RequestLogger
     ) {}
 
     /**
-     * @param  float  $startedAtSeconds  microtime(true) when the request started.
+     * @param  int  $startedAtNanoseconds  hrtime(true) when the request started. hrtime is
+     *                                     monotonic, unlike the wall clock, which NTP or a resumed
+     *                                     VM can set back or forward during a request.
      */
-    public function log(Request $request, Response $response, float $startedAtSeconds): void
+    public function log(Request $request, Response $response, int $startedAtNanoseconds): void
     {
+        $durationNanoseconds = hrtime(true) - $startedAtNanoseconds;
+
         $user = $request->user();
         $requestFields = [
             'request' => [
@@ -38,7 +42,7 @@ class RequestLogger
             'url' => $request->fullUrl(),
             'route' => $this->routeName($request),
             'status' => $response->getStatusCode(),
-            'duration_ms' => round((microtime(true) - $startedAtSeconds) * 1000, 2),
+            'duration_ms' => round($durationNanoseconds / 1_000_000, 2),
             'ip' => $request->ip(),
             'user' => [
                 'id' => $user instanceof Authenticatable ? $user->getAuthIdentifier() : null,
