@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Context;
@@ -486,6 +487,57 @@ it('keeps truncated lists valid json and records their full count', function () 
         ->and(strlen($json))->toBeLessThanOrEqual(1000)
         ->and(strlen(json_encode(array_slice($tags, 0, count($kept) + 1), JSON_THROW_ON_ERROR)))->toBeGreaterThan(1000)
         ->and($entry['user.tags_count'])->toBe(200);
+});
+
+it('bounds objects like the strings and arrays they encode to', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('import', [
+        'serializable' => new class implements JsonSerializable
+        {
+            public function jsonSerialize(): mixed
+            {
+                return str_repeat('b', 5000);
+            }
+        },
+        'arrayable' => new class implements Arrayable
+        {
+            /**
+             * @return array<string, string>
+             */
+            public function toArray(): array
+            {
+                return ['sku' => str_repeat('e', 5000)];
+            }
+        },
+        'collection' => collect(range(1, 2000)),
+        'plain' => (object) ['deep' => ['deeper' => str_repeat('c', 5000)]],
+        'dto' => new class
+        {
+            public string $note;
+
+            public function __construct()
+            {
+                $this->note = str_repeat('d', 5000);
+            }
+        },
+    ]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    // "[1,…,276]" is 4 × 276 - 107 = 997 bytes: 9 one-digit, 90 two-digit and 177 three-digit
+    // numbers, 275 commas and 2 brackets. The 277th element would make it 1,001.
+    expect($entry)->toMatchArray([
+        'serializable' => str_repeat('b', 1000),
+        'arrayable.sku' => str_repeat('e', 1000),
+        'collection' => json_encode(range(1, 276), JSON_THROW_ON_ERROR),
+        'collection_count' => 2000,
+        'plain.deep.deeper' => str_repeat('c', 1000),
+        'dto.note' => str_repeat('d', 1000),
+    ]);
 });
 
 it('does not add a count to lists that fit', function () {
