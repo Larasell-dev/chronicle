@@ -7,6 +7,9 @@ use Larasell\Chronicle\Exceptions\StructuredException;
 use Larasell\Chronicle\WideEvents\Requests\Sampler;
 use LogicException;
 
+/**
+ * @internal
+ */
 final class InvalidSampler extends LogicException implements StructuredException
 {
     use HasStructuredException;

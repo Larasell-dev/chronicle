@@ -8,6 +8,8 @@ use Throwable;
 /**
  * Builds the error fields of an event from an exception. Error events and failed request events
  * both use it, so an exception is logged the same way in either.
+ *
+ * @internal
  */
 final class ErrorFields
 {
