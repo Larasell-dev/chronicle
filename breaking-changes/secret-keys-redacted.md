@@ -6,7 +6,8 @@ file and sent to PostHog. Chronicle now logs the value of every key that contain
 new `chronicle.redact` list as `"[redacted]"`, wherever the key is in an event, lists and objects
 included. The default list covers passwords, secrets, tokens, API keys, cookies, signatures and
 card numbers. Keys match by whole words, in any case: `token` matches `access_token`,
-`X-Csrf-Token` and `apiToken`, but not `tokens`.
+`X-Csrf-Token` and `apiToken`, but not `tokens`. An event with hidden values lists their paths in
+`chronicle.redacted`, e.g. `["user.password","items.0.token"]`.
 
 ## Who is affected
 
