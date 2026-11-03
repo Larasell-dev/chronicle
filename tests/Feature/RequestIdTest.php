@@ -23,7 +23,15 @@ beforeEach(function () {
 
 function isUuidV7(?string $value): bool
 {
-    return $value !== null && Str::isUuid($value) && $value[14] === '7';
+    if ($value === null) {
+        return false;
+    }
+
+    if (! Str::isUuid($value)) {
+        return false;
+    }
+
+    return $value[14] === '7';
 }
 
 it('assigns every request a UUIDv7, sends it back and logs it', function () {

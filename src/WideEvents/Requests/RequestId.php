@@ -34,7 +34,8 @@ final readonly class RequestId
      */
     public static function fromHeader(?string $header): self
     {
-        if ($header === null || preg_match('/^[\x21-\x7E]{1,'.self::LENGTH_MAX.'}$/D', $header) !== 1) {
+        // No header matches like an empty one: the pattern needs at least one character.
+        if (preg_match('/^[\x21-\x7E]{1,'.self::LENGTH_MAX.'}$/D', $header ?? '') !== 1) {
             return new self(Str::uuid7()->toString());
         }
 
