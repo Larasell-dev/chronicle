@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
@@ -419,6 +420,92 @@ it('flattens fields in chronicle record and merges context under them', function
         ->and($entry['order.total'])->toBe(10)
         ->and($entry['job.id'])->toBe(7)
         ->and($entry)->not->toHaveKey('order');
+});
+
+it('truncates long string fields', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('big', ['body' => str_repeat('x', 5000)]);
+
+    // Assert
+    expect(chronicleEntries($handler)[0]['body'])->toBe(str_repeat('x', 1000));
+});
+
+it('stores arrays nested deeper than 32 levels as one json value, however deep', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // 20,000 levels used to exhaust 128 MB of memory in the recursive flatten.
+    $fields = 'leaf';
+    for ($level = 0; $level < 20_000; $level++) {
+        $fields = ['a' => $fields];
+    }
+
+    // Act
+    app(Chronicle::class)->record('deep', $fields);
+
+    // Assert
+    // Levels 1 to 32 become the key; the rest is too deep to encode, so it becomes null.
+    expect(chronicleEntries($handler)[0])->toMatchArray([
+        implode('.', array_fill(0, 32, 'a')) => '{"a":null}',
+    ]);
+});
+
+it('keeps truncated lists valid json and records their full count', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+    $tags = array_map(fn (int $index): string => "tag-{$index}", range(0, 199));
+
+    // Act
+    app(Chronicle::class)->record('tags', ['user' => ['tags' => $tags]]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+    $json = Arr::string($entry, 'user.tags');
+    $kept = chronicleEntry($json);
+
+    // The kept tags are the longest prefix of the list whose JSON fits in 1,000 bytes.
+    expect($kept)->toBe(array_slice($tags, 0, count($kept)))
+        ->and(strlen($json))->toBeLessThanOrEqual(1000)
+        ->and(strlen(json_encode(array_slice($tags, 0, count($kept) + 1), JSON_THROW_ON_ERROR)))->toBeGreaterThan(1000)
+        ->and($entry['user.tags_count'])->toBe(200);
+});
+
+it('does not add a count to lists that fit', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('tags', ['tags' => ['a', 'b']]);
+
+    // Assert
+    expect(chronicleEntries($handler)[0])->not->toHaveKey('tags_count');
+});
+
+it('drops context fields first once an event has more than 256 fields', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    foreach (range(0, 999) as $index) {
+        Context::add("context.f{$index}", $index);
+    }
+
+    // Act
+    app(Chronicle::class)->record('wide', ['order' => ['id' => 7]]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    // 2 header + 1,000 context + 1 field = 1,003. Keeping 256 with the count means dropping
+    // 1,003 - 256 + 1 = 748 fields, all of them the latest context fields.
+    expect($entry)->toHaveCount(256)
+        ->and($entry['chronicle.fields_dropped'])->toBe(748)
+        ->and($entry['type'])->toBe('wide')
+        ->and($entry['order.id'])->toBe(7)
+        ->and($entry['context.f251'])->toBe(251)
+        ->and($entry)->not->toHaveKey('context.f252');
 });
 
 it('drops request logs when the sampler returns false', function () {

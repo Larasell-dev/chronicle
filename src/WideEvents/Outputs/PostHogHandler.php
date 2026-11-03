@@ -32,7 +32,10 @@ class PostHogHandler extends AbstractProcessingHandler
     /** Events per request. Large enough to send a request's events at once, small enough to stay fast. */
     public const BATCH_EVENTS_MAX = 100;
 
-    /** Bytes of events per request, counted as the events' JSON. */
+    /**
+     * Bytes of events per request, counted as the events' JSON. Chronicle bounds an event at
+     * about 300 KB, so a batch always fits at least three of the largest.
+     */
     public const BATCH_BYTES_MAX = 1_000_000;
 
     /** Seconds to wait for PostHog to accept the connection. */
