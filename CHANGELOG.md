@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1](https://github.com/Larasell-dev/chronicle/compare/v0.4.0...v0.4.1) (2026-11-03)
+
+
+### Features
+
+* add service, release, environment and host to every event ([5b7a072](https://github.com/Larasell-dev/chronicle/commit/5b7a0729420c973f78d1ed8ae473dfd26446a6f4))
+
+
+### Bug Fixes
+
+* ignore malformed global fields outside development ([48316dc](https://github.com/Larasell-dev/chronicle/commit/48316dc504cb82bdcbaa476e84f1ac5f73212a25))
+* name NAN in the chronicle.fields error instead of interpolating it ([3093100](https://github.com/Larasell-dev/chronicle/commit/3093100a6e7fdf0950a465c90b2a3c43e36e0f85))
+
 ## [0.4.0](https://github.com/Larasell-dev/chronicle/compare/v0.3.0...v0.4.0) (2026-11-03)
 
 
