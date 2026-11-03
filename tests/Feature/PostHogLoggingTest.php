@@ -107,8 +107,10 @@ function posthogTestHandler(): PostHogHandler
 }
 
 it('sends chronicle events as otlp json log records', function () {
+    // Arrange
     Http::fake();
 
+    // Act
     Log::channel('posthog_test')->info(json_encode([
         'timestamp' => '2026-10-07T20:00:00+00:00',
         'type' => 'request',
@@ -123,6 +125,7 @@ it('sends chronicle events as otlp json log records', function () {
 
     app()->terminate();
 
+    // Assert
     // One request, so the three checks below are all about it.
     Http::assertSentCount(1);
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://eu.i.posthog.com/i/v1/logs');
@@ -152,11 +155,14 @@ it('sends chronicle events as otlp json log records', function () {
 });
 
 it('maps monolog levels to otlp severities', function (Level $level, int $number, string $text) {
+    // Arrange
     Http::fake();
 
+    // Act
     Log::channel('posthog_test')->log($level->getName(), '{"type":"request"}');
     posthogTestHandler()->flush();
 
+    // Assert
     expect(posthogBatches()[0][0]['severityNumber'])->toBe($number)
         ->and(posthogBatches()[0][0]['severityText'])->toBe($text);
 })->with([
@@ -171,6 +177,7 @@ it('maps monolog levels to otlp severities', function (Level $level, int $number
 ]);
 
 it('sends a request\'s events in one batch once the app terminates', function () {
+    // Arrange
     Http::fake();
 
     foreach (['one', 'two', 'three'] as $type) {
@@ -179,19 +186,24 @@ it('sends a request\'s events in one batch once the app terminates', function ()
 
     expect(Http::recorded())->toHaveCount(0);
 
+    // Act
     app()->terminate();
 
+    // Assert
     expect(array_map(fn (array $record): mixed => $record['body'], posthogBatches()[0]))
         ->toBe([['stringValue' => 'one'], ['stringValue' => 'two'], ['stringValue' => 'three']]);
 });
 
 it('sends a batch early once it holds 100 events', function () {
+    // Arrange
     Http::fake();
 
+    // Act
     foreach (range(1, 101) as $index) {
         Log::channel('posthog_test')->info('{"type":"tick"}');
     }
 
+    // Assert
     // The 100th event fills the batch; the 101st waits for the next one.
     expect(posthogBatches())->toHaveCount(1)
         ->and(posthogBatches()[0])->toHaveCount(100);
@@ -202,95 +214,119 @@ it('sends a batch early once it holds 100 events', function () {
 });
 
 it('sends a batch early rather than let it pass 1 MB', function () {
+    // Arrange
     Http::fake();
 
     $event = json_encode(['type' => 'big', 'body' => str_repeat('x', 600_000)], JSON_THROW_ON_ERROR);
 
+    // Act
     Log::channel('posthog_test')->info($event);
     Log::channel('posthog_test')->info($event);
 
+    // Assert
     // Two 600 KB events can't share a batch, so the first one went before the second was added.
     expect(posthogBatches())->toHaveCount(1)
         ->and(posthogBatches()[0])->toHaveCount(1);
 });
 
 it('sends the events of a queued job after the job', function () {
+    // Arrange
     Http::fake();
 
     Log::channel('posthog_test')->info('{"type":"job"}');
 
+    // Act
     Event::dispatch(new JobProcessed('sync', new SyncJob(app(), '{}', 'sync', 'default')));
 
+    // Assert
     expect(posthogBatches())->toHaveCount(1);
 });
 
 it('retries once and then drops the batch without throwing when posthog fails', function () {
+    // Arrange
     Http::fake(['*' => Http::response([], 503)]);
     $errorLog = $this->captureErrorLog();
 
+    // Act
     Log::channel('posthog_test')->info('{"type":"request"}');
     app()->terminate();
     posthogTestHandler()->flush();
 
+    // Assert
     expect(Http::recorded())->toHaveCount(2)
         ->and((string) file_get_contents($errorLog))->toContain('Chronicle dropped 1 events for PostHog: PostHog answered HTTP 503');
 });
 
 it('drops the batch without throwing when posthog can not be reached', function () {
+    // Arrange
     Http::fake(fn () => throw new ConnectionException('cURL error 28: Connection timed out'));
     $errorLog = $this->captureErrorLog();
 
+    // Act
     Log::channel('posthog_test')->info('{"type":"request"}');
     app()->terminate();
 
+    // Assert
     expect((string) file_get_contents($errorLog))
         ->toContain('Chronicle dropped 1 events for PostHog: cURL error 28: Connection timed out');
 });
 
 it('throws in debug mode when the posthog channel is enabled without an api key', function () {
+    // Arrange
     Http::fake();
 
     config()->set('app.debug', true);
     config()->set('chronicle.channels.posthog.api_key', null);
     config()->set('chronicle.default', 'posthog');
 
+    // Act & Assert
     app(Chronicle::class)->record('request');
 })->throws(MissingPostHogApiKey::class, 'POSTHOG_API_KEY is required');
 
 it('does not throw outside debug mode when the api key is missing', function () {
+    // Arrange
     Http::fake();
 
     config()->set('app.debug', false);
     config()->set('chronicle.channels.posthog.api_key', null);
     config()->set('chronicle.default', 'posthog');
 
+    // Act
     app(Chronicle::class)->record('request');
     app()->terminate();
 
+    // Assert
     Http::assertNothingSent();
 });
 
 it('writes only to the log file by default', function () {
+    // Arrange
     Http::fake();
 
     config()->set('chronicle.channels.posthog.api_key', 'phc_test');
 
+    // Act
     app(Chronicle::class)->record('ping');
     app()->terminate();
 
+    // Assert
     expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"');
     Http::assertNothingSent();
 });
 
 it('writes to the log file and to PostHog through the stack channel', function () {
+    // Arrange
     Http::fake();
 
     config()->set('chronicle.channels.posthog.api_key', 'phc_test');
+
     config()->set('chronicle.default', 'stack');
 
+    // Act
     app(Chronicle::class)->record('ping');
     app()->terminate();
 
+    // Assert
     expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"')
         ->and(posthogBatches()[0][0]['body'])->toBe(['stringValue' => 'ping']);
 });

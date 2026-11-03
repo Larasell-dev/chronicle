@@ -13,13 +13,16 @@ use Monolog\Level;
 use RuntimeException;
 
 it('records structured fields for exceptions implementing the contract', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     $previous = new RuntimeException('network down');
     $e = PaymentDeclined::byIssuer($previous);
 
+    // Act
     app(Chronicle::class)->recordError($e);
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($e->getPrevious())->toBe($previous)
@@ -33,10 +36,13 @@ it('records structured fields for exceptions implementing the contract', functio
 });
 
 it('records domain exceptions built through the structured error constructor', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
+    // Act
     app(Chronicle::class)->recordError(CouldNotInviteMember::emailAlreadyInvited('nils@example.com', 'acme'));
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['error.code'])->toBe('teams.could-not-invite-member.email-already-invited')
@@ -46,6 +52,7 @@ it('records domain exceptions built through the structured error constructor', f
 });
 
 it('records structured exceptions thrown inline', function (string $class, string $base) {
+    // Arrange
     $handler = chronicleTestHandler();
     $previous = new RuntimeException('network down');
 
@@ -57,6 +64,7 @@ it('records structured exceptions thrown inline', function (string $class, strin
         throw new UnexpectedValueException("The dataset must name an SPL base class, [{$base}] given.");
     }
 
+    // Act
     try {
         throw new $class(
             code: 'billing.declined',
@@ -70,6 +78,7 @@ it('records structured exceptions thrown inline', function (string $class, strin
         app(Chronicle::class)->recordError($e);
     }
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($e)->toBeInstanceOf($base)
@@ -90,10 +99,13 @@ it('records structured exceptions thrown inline', function (string $class, strin
 ));
 
 it('degrades to a stable shape for plain throwables', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
+    // Act
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($handler->getRecords()[0]->level)->toBe(Level::Error)
@@ -105,6 +117,7 @@ it('degrades to a stable shape for plain throwables', function () {
 });
 
 it('merges exception context and lets call-site context win', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     $e = new class('Payment failed') extends RuntimeException implements StructuredException
@@ -123,8 +136,10 @@ it('merges exception context and lets call-site context win', function () {
 
     $e->errorCode = 'billing.declined';
 
+    // Act
     app(Chronicle::class)->recordError($e, context: ['shared' => 'from-call-site']);
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['correlation_id'])->toBe('pay_123')
@@ -133,14 +148,18 @@ it('merges exception context and lets call-site context win', function () {
 });
 
 it('does not merge context from exceptions without a context method', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
+    // Act
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
+    // Assert
     expect(chronicleEntries($handler)[0])->not->toHaveKeys(['correlation_id']);
 });
 
 it('truncates long context values', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     $e = new class('boom') extends RuntimeException
@@ -152,26 +171,34 @@ it('truncates long context values', function () {
         }
     };
 
+    // Act
     app(Chronicle::class)->recordError($e);
 
+    // Assert
     expect(strlen(Arr::string(chronicleEntries($handler)[0], 'raw')))->toBe(1000);
 });
 
 it('accepts an explicit level in record error', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
+    // Act
     app(Chronicle::class)->recordError(new RuntimeException('boom'), Level::Critical);
 
+    // Assert
     expect($handler->getRecords()[0]->level)->toBe(Level::Critical);
 });
 
 it('merges context accumulated through chronicle set into error events', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Context::add(['job.id' => 123, 'queue' => 'default']);
 
+    // Act
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['job.id'])->toBe(123)
@@ -180,12 +207,15 @@ it('merges context accumulated through chronicle set into error events', functio
 });
 
 it('collapses nested context arrays into dotted keys on error events', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Context::add(['job' => ['id' => 123, 'tags' => ['a', 'b']]]);
 
+    // Act
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['job.id'])->toBe(123)
@@ -194,10 +224,13 @@ it('collapses nested context arrays into dotted keys on error events', function 
 });
 
 it('does not record errors when chronicle is disabled', function () {
+    // Arrange
     $handler = chronicleTestHandler();
     config()->set('chronicle.enabled', false);
 
+    // Act
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(0);
 });
