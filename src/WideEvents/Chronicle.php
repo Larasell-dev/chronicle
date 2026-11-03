@@ -50,6 +50,39 @@ class Chronicle
     private const ASSERTION_FAILED = 'chronicle.assertion_failed';
 
     /**
+     * The fields add() collected for the request LogRequests is logging. Null while no request is
+     * being logged, so add() keeps nothing that no event would ever carry, e.g. in a queue worker.
+     *
+     * @var array<string, mixed>|null
+     */
+    private ?array $addedFields = null;
+
+    /**
+     * Adds a field to the event of the current request, and only to it: unlike Context, the field
+     * isn't added to other log lines or passed on to queued jobs. Outside a request that
+     * LogRequests logs, there is no such event, so the field is discarded. Adding a key again
+     * replaces its value.
+     */
+    public function add(string $key, mixed $value): void
+    {
+        if ($this->addedFields === null) {
+            return;
+        }
+
+        $this->addedFields[$key] = $value;
+    }
+
+    /**
+     * Starts collecting add()'s fields for the request that LogRequests is about to handle.
+     *
+     * @internal
+     */
+    public function beginRequest(): void
+    {
+        $this->addedFields = [];
+    }
+
+    /**
      * Records a wide event of the given type. The fields you pass win over fields in Context.
      *
      * @param  array<mixed>  $fields
@@ -71,7 +104,8 @@ class Chronicle
     }
 
     /**
-     * Records the event of one HTTP request, for RequestLogger. $shouldLog sees the finished event, so a sampler decides on
+     * Records the event of one HTTP request, for RequestLogger, with the fields add() collected,
+     * and stops collecting them. $shouldLog sees the finished event, so a sampler decides on
      * exactly what would be written.
      *
      * @internal
@@ -87,7 +121,10 @@ class Chronicle
         Closure $shouldLog,
         array $assertionFailures = [],
     ): void {
-        $event = $this->event('request', $errorFields, $requestFields, $assertionFailures);
+        $added = $this->addedFields ?? [];
+        $this->addedFields = null;
+
+        $event = $this->event('request', $errorFields, $requestFields, $assertionFailures, $added);
 
         if ($shouldLog($event) === false) {
             return;
@@ -98,14 +135,15 @@ class Chronicle
 
     /**
      * Builds a wide event, so every event follows the same rules. Fields are flattened into dotted
-     * keys and merged in this order, later ones winning: everything in Context, the defaults, the fields, and last the timestamp and type. The defaults are an
+     * keys and merged in this order, later ones winning: everything in Context, the fields add()
+     * collected, the defaults, the fields, and last the timestamp and type. The defaults are an
      * EventDefaults, not a second array, so the two can't be swapped. They are fields Chronicle
-     * measured itself, such as a request's status, which a package's Context must not
+     * measured itself, such as a request's status, which a package's Context or add() must not
      * change, since every package shares them. Only a default Chronicle couldn't measure, which is
      * null, such as the user.id of a customer signed in through another guard, can be filled in.
      *
      * Every event is bounded: see the limits at the top of this class. An event over FIELDS_MAX
-     * drops fields, those of Context first, and counts them in chronicle.fields_dropped.
+     * drops fields, those of Context and add() first, and counts them in chronicle.fields_dropped.
      *
      * Every value json_encode can't encode, such as NAN, INF or a resource, becomes null, and
      * chronicle.unencodable maps its key to why, so one bad value never costs the whole event.
@@ -117,6 +155,7 @@ class Chronicle
      *
      * @param  array<mixed>  $fields
      * @param  array<string, string>  $assertionFailures  The caller's failed assertions, error code to message.
+     * @param  array<mixed>  $added  The fields add() collected.
      * @return array<string, mixed>
      */
     private function event(
@@ -124,6 +163,7 @@ class Chronicle
         array $fields,
         ?EventDefaults $defaults = null,
         array $assertionFailures = [],
+        array $added = [],
     ): array {
         $header = [
             'timestamp' => now()->toIso8601String(),
@@ -131,7 +171,8 @@ class Chronicle
         ];
         $defaults = $this->flatten($defaults->fields ?? []);
         $measured = array_filter($defaults, fn (mixed $value): bool => $value !== null);
-        $context = $this->flatten(Context::all());
+        // Added after Context, so a field meant for this event wins over one meant for every line.
+        $context = array_merge($this->flatten(Context::all()), $this->flatten($added));
         $fields = $this->flatten($fields);
 
         // The header and defaults come first too, so they keep their place at the start of the event.
@@ -290,7 +331,7 @@ class Chronicle
 
     /**
      * Drops fields until the event, with the chronicle.fields_dropped count added, has FIELDS_MAX
-     * fields. Fields that only Context sets go first, latest first: they accumulate over a whole
+     * fields. Fields that only Context or add() set go first, latest first: they accumulate over a whole
      * request, so they are what grows past the limit, while the defaults and the caller's fields
      * describe this event. The timestamp and type are never dropped. $fieldsReserved leaves room
      * for fields the caller adds afterwards.
