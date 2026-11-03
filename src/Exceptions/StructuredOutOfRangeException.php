@@ -8,7 +8,8 @@ use OutOfRangeException;
 use Throwable;
 
 /**
- * The structured OutOfRangeException to throw inline, for programming errors that need no class of their own.
+ * The structured OutOfRangeException to throw inline, for programming errors that need no class of their own:
+ * throw new StructuredOutOfRangeException(code: 'cart.no-such-line', message: 'The cart has no line 5', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredOutOfRangeException extends OutOfRangeException implements StructuredException

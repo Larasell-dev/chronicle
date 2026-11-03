@@ -8,7 +8,7 @@ use LogicException;
 use Throwable;
 
 /**
- * A structured exception to throw inline, for programming errors that need no class of their own:
+ * The structured LogicException to throw inline, for programming errors that need no class of their own:
  * throw new StructuredLogicException(code: 'checkout.missing-cart', message: 'No cart', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */

@@ -8,7 +8,8 @@ use DomainException;
 use Throwable;
 
 /**
- * The structured DomainException to throw inline, for programming errors that need no class of their own.
+ * The structured DomainException to throw inline, for programming errors that need no class of their own:
+ * throw new StructuredDomainException(code: 'billing.unknown-currency', message: 'XYZ is not a currency', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredDomainException extends DomainException implements StructuredException

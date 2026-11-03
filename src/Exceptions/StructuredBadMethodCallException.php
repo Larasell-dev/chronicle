@@ -8,7 +8,8 @@ use BadMethodCallException;
 use Throwable;
 
 /**
- * The structured BadMethodCallException to throw inline, for programming errors that need no class of their own.
+ * The structured BadMethodCallException to throw inline, for programming errors that need no class of their own:
+ * throw new StructuredBadMethodCallException(code: 'orders.already-shipped', message: 'A shipped order cannot be cancelled', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredBadMethodCallException extends BadMethodCallException implements StructuredException

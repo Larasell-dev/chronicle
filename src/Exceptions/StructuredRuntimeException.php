@@ -8,7 +8,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * A structured exception to throw inline, for runtime failures that need no class of their own:
+ * The structured RuntimeException to throw inline, for runtime failures that need no class of their own:
  * throw new StructuredRuntimeException(code: 'billing.declined', message: 'Payment failed', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */

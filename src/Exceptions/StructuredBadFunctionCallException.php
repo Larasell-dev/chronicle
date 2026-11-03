@@ -8,7 +8,8 @@ use BadFunctionCallException;
 use Throwable;
 
 /**
- * The structured BadFunctionCallException to throw inline, for programming errors that need no class of their own.
+ * The structured BadFunctionCallException to throw inline, for programming errors that need no class of their own:
+ * throw new StructuredBadFunctionCallException(code: 'exports.unknown-formatter', message: 'No formatter named csv', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredBadFunctionCallException extends BadFunctionCallException implements StructuredException
