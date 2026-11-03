@@ -66,4 +66,9 @@ return [
      * Leave it null to log values as they are.
      */
     'redactor' => null,
+
+    /*
+     * Whether request events log the client's ip. When off, ip is null.
+     */
+    'log_ip' => env('CHRONICLE_LOG_IP', true),
 ];
