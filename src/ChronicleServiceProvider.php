@@ -15,6 +15,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
+use Larasell\Chronicle\Exceptions\StructuredLogicException;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
@@ -42,7 +43,7 @@ class ChronicleServiceProvider extends ServiceProvider
         $this->app->booting(fn () => $this->registerChannels());
 
         // Once every provider booted, since an app's sampler may depend on them. Building the
-        // RequestLogger now resolves the sampler, so a broken chronicle.sampling stops the app at
+        // RequestLogger now resolves the sampler, so a broken chronicle.sampler stops the app at
         // boot, rather than failing every request that LogRequests logs.
         $this->app->booted(fn () => $this->app->make(RequestLogger::class));
     }
@@ -91,11 +92,22 @@ class ChronicleServiceProvider extends ServiceProvider
      */
     protected function sampler(Container $app): ?Sampler
     {
-        if (config('chronicle.sampling') === null) {
+        // The old name of chronicle.sampler. The package config no longer has it, so only a published config
+        // can set it. Ignoring it would silently keep every request event.
+        if (config('chronicle.sampling') !== null) {
+            throw new StructuredLogicException(
+                code: 'chronicle.sampling.renamed',
+                message: 'chronicle.sampling is now chronicle.sampler',
+                why: 'config/chronicle.php still sets sampling, which Chronicle no longer reads',
+                fix: "Rename 'sampling' to 'sampler' in config/chronicle.php",
+            );
+        }
+
+        if (config('chronicle.sampler') === null) {
             return null;
         }
 
-        $sampler = $app->make(Config::string('chronicle.sampling'));
+        $sampler = $app->make(Config::string('chronicle.sampler'));
 
         if (! $sampler instanceof Sampler) {
             throw InvalidSampler::doesNotImplementSampler($sampler);

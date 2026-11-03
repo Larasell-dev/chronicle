@@ -16,7 +16,7 @@ final class EveryTenthRequestSampler implements Sampler
 {
     private int $requestCount = 0;
 
-    public function shouldLog(Request $request, Response $response, array $payload): bool
+    public function shouldLog(Request $request, Response $response, array $event): bool
     {
         $this->requestCount++;
 

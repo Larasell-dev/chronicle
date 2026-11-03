@@ -45,5 +45,5 @@ return [
      * Larasell\Chronicle\WideEvents\Requests\Sampler. Leave it null to keep
      * every request event.
      */
-    'sampling' => null,
+    'sampler' => null,
 ];

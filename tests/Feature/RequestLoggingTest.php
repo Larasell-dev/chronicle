@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Exceptions\StructuredInvalidArgumentException;
+use Larasell\Chronicle\Exceptions\StructuredLogicException;
 use Larasell\Chronicle\Tests\Fixtures\EveryTenthRequestSampler;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
@@ -694,7 +695,7 @@ it('cuts the unencodable report to 1000 bytes of valid json and counts every val
  */
 function useSampler(string $sampler): Sampler
 {
-    config()->set('chronicle.sampling', $sampler);
+    config()->set('chronicle.sampler', $sampler);
     app()->singleton($sampler);
     app()->forgetInstance(RequestLogger::class);
     app(RequestLogger::class);
@@ -738,7 +739,7 @@ it('keeps every request log when no sampler is configured', function () {
     expect($handler->getRecords())->toHaveCount(1);
 });
 
-it('passes request, response and payload to the sampler', function () {
+it('passes request, response and event to the sampler', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
@@ -753,6 +754,15 @@ it('passes request, response and payload to the sampler', function () {
     expect($handler->getRecords())->toHaveCount(1)
         ->and($sampler->seen)->toBe([['GET', 200, 'http://localhost/ping']]);
 });
+
+it('fails at boot when the config still sets the old sampling key', function () {
+    // Arrange
+    config()->set('chronicle.sampling', SuccessfulRequestsSampler::class);
+    app()->forgetInstance(RequestLogger::class);
+
+    // Act & Assert
+    app(RequestLogger::class);
+})->throws(StructuredLogicException::class, 'chronicle.sampling is now chronicle.sampler');
 
 it('builds the sampler once, so it can keep state across requests', function () {
     // Arrange
@@ -772,9 +782,9 @@ it('builds the sampler once, so it can keep state across requests', function () 
 
 it('throws when the configured sampler does not implement the interface', function () {
     // Arrange
-    config()->set('chronicle.sampling', NotASampler::class);
+    config()->set('chronicle.sampler', NotASampler::class);
     app()->forgetInstance(RequestLogger::class);
 
     // Act & Assert
     app(RequestLogger::class);
-})->throws(InvalidSampler::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');
+})->throws(InvalidSampler::class, 'chronicle.sampler must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');
