@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Exceptions\StructuredInvalidArgumentException;
 use Larasell\Chronicle\Exceptions\StructuredLogicException;
@@ -13,6 +15,23 @@ use Larasell\Chronicle\Tests\Fixtures\NotASampler;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
+
+/**
+ * The paths an event lists in chronicle.redacted.
+ *
+ * @param  array<mixed>  $entry
+ * @return array<mixed>
+ */
+function redactedPaths(array $entry): array
+{
+    $paths = json_decode(Arr::string($entry, 'chronicle.redacted'), true, flags: JSON_THROW_ON_ERROR);
+
+    if (! is_array($paths)) {
+        throw new UnexpectedValueException('chronicle.redacted is not a JSON list.');
+    }
+
+    return $paths;
+}
 
 /**
  * The route_params fields of an event.
@@ -52,7 +71,9 @@ it('logs the query as fields of its own and redacts the values of secret keys', 
         ->and($entry['query.filter.status'])->toBe('paid')
         ->and($entry['query.filter.api_key'])->toBe('[redacted]')
         ->and($entry['query.X-Amz-Signature'])->toBe('[redacted]')
-        ->and($entry)->not->toHaveKey('query_count');
+        ->and($entry)->not->toHaveKey('query_count')
+        ->and(redactedPaths($entry))
+        ->toBe(['query.token', 'query.filter.api_key', 'query.X-Amz-Signature']);
 });
 
 it('keeps 32 query values and counts all of them', function () {
@@ -93,6 +114,7 @@ it('logs the route template as the url and redacts secret route parameters', fun
     expect($entry['url'])->toBe('http://localhost/reset-password/{token}')
         ->and($entry['route_params.token'])->toBe('[redacted]')
         ->and($entry['query.email'])->toBe('nils@example.com')
+        ->and(redactedPaths($entry))->toBe(['route_params.token'])
         ->and($handler->getRecords()[0]->message)->not->toContain('RESET-TOKEN-SECRET');
 });
 
@@ -289,4 +311,75 @@ it('leaves out the ip when log ip is off', function () {
 
     // Assert
     expect(chronicleEntries($handler)[0]['ip'])->toBeNull();
+});
+
+it('lists every hidden value by its path, inside json values and through the redactor too', function () {
+    // Arrange
+    config()->set('chronicle.redactor', EmailMaskingRedactor::class);
+    rebuildChronicle();
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('invite', [
+        'user' => ['email' => 'jane@example.com', 'password' => 'p1', 'name' => 'Jane'],
+        'items' => [['sku' => 'a1', 'token' => 't1']],
+    ]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    expect(redactedPaths($entry))->toBe(['user.email', 'user.password', 'items.0.token'])
+        ->and($entry)->not->toHaveKey('chronicle.redacted_count');
+});
+
+it('adds no redacted list when nothing was hidden', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('checkout', ['order' => ['id' => 7]]);
+
+    // Assert
+    expect(chronicleEntries($handler)[0])->not->toHaveKey('chronicle.redacted');
+});
+
+it('leaves fields dropped from a full event out of the redacted list', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    foreach (range(1, 300) as $index) {
+        Context::add("context.f{$index}", $index);
+    }
+
+    // The latest context field, so the first one dropped.
+    Context::add('context.token', 't1');
+
+    // Act
+    app(Chronicle::class)->record('checkout', ['password' => 'p1']);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry)->not->toHaveKey('context.token')
+        ->and(redactedPaths($entry))->toBe(['password'])
+        ->and(count($entry))->toBe(256);
+});
+
+it('cuts a long redacted list to 1000 bytes of valid json and counts every path', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    $items = array_map(fn (int $index): array => ['token' => "t{$index}"], range(0, 199));
+
+    // Act
+    app(Chronicle::class)->record('import', ['items' => $items]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+    $paths = redactedPaths($entry);
+
+    expect(strlen(Arr::string($entry, 'chronicle.redacted')))->toBeLessThanOrEqual(1000)
+        ->and($paths[0])->toBe('items.0.token')
+        ->and(count($paths))->toBeLessThan(200)
+        ->and($entry['chronicle.redacted_count'])->toBe(200);
 });

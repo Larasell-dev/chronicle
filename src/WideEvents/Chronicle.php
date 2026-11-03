@@ -61,6 +61,14 @@ class Chronicle
     private ?array $addedFields = null;
 
     /**
+     * The paths of the values redacted() hid while event() builds an event, cut like keys, for
+     * chronicle.redacted. Taken by event() once it flattened every source.
+     *
+     * @var list<string>
+     */
+    private array $redactedPaths = [];
+
+    /**
      * Whether the warning that LogRequests ran twice in one request was logged. Once per process,
      * since a middleware added twice runs twice on every request.
      */
@@ -202,6 +210,10 @@ class Chronicle
      * That map is one JSON value like any other, so it obeys VALUE_BYTES_MAX, adding
      * chronicle.unencodable_count when it is cut. Both count towards FIELDS_MAX.
      *
+     * Every value redacted() hid, by key or through the app's Redactor, is listed by its path in
+     * chronicle.redacted, so a hidden value can be told from one that was never set. The list is
+     * bounded like the unencodable report, with chronicle.redacted_count when it is cut.
+     *
      * An assertion that fails while the event is built, outside debug mode, is recorded in
      * chronicle.assertion_failed, together with the $assertionFailures of the caller.
      *
@@ -221,18 +233,22 @@ class Chronicle
             'timestamp' => now()->toIso8601String(),
             'type' => mb_strcut($type, 0, self::VALUE_BYTES_MAX, 'UTF-8'),
         ];
+        // Paths left by an event() that threw before it took them, e.g. on a failed assertion.
+        $this->takeRedactedPaths();
         $defaults = $this->flatten($defaults->fields ?? []);
         $measured = array_filter($defaults, fn (mixed $value): bool => $value !== null);
         // Added after Context, so a field meant for this event wins over one meant for every line.
         $context = array_merge($this->flatten(Context::all()), $this->flatten($added));
         $fields = $this->flatten($fields);
+        $redacted = $this->takeRedactedPaths();
 
         // The header and defaults come first too, so they keep their place at the start of the event.
         $event = array_merge($header, $defaults, $context, $measured, $fields, $header);
         $unencodable = array_filter($event, fn (mixed $value): bool => $value instanceof UnencodableValue);
 
-        // Room for chronicle.unencodable, and for its _count when the reasons don't all fit.
-        $fieldsReserved = count($this->unencodableFields($unencodable));
+        // Room for chronicle.unencodable and chronicle.redacted, and for the _count of each
+        // when it doesn't all fit.
+        $fieldsReserved = count($this->unencodableFields($unencodable)) + count($this->redactedFields($redacted));
 
         if (count($event) + $fieldsReserved > self::FIELDS_MAX) {
             $event = $this->eventWithoutOverflow(
@@ -241,13 +257,14 @@ class Chronicle
                 $fieldsReserved,
             );
             $unencodable = array_intersect_key($unencodable, $event);
+            $redacted = array_values(array_filter($redacted, fn (string $path): bool => $this->inEvent($path, $event)));
         }
 
         foreach ($unencodable as $key => $value) {
             $event[$key] = $value->replacement;
         }
 
-        $event = array_merge($event, $this->unencodableFields($unencodable));
+        $event = array_merge($event, $this->unencodableFields($unencodable), $this->redactedFields($redacted));
 
         // The other side of the promises flatten() and eventWithoutOverflow() make, checked on
         // the finished event: no marker, array or object may be left by now.
@@ -351,6 +368,65 @@ class Chronicle
             'chronicle.unencodable',
             array_map(fn (UnencodableValue $value): string => $value->reason, $unencodable),
         );
+    }
+
+    /**
+     * The fields that report what redacted() hid: chronicle.redacted, a JSON list of the paths of
+     * the hidden values, and chronicle.redacted_count when that list had to be cut. A path names a
+     * field, or a value inside a field stored as JSON, e.g. items.0.token.
+     *
+     * @param  list<string>  $paths
+     * @return array<string, int|string>
+     */
+    private function redactedFields(array $paths): array
+    {
+        if ($paths === []) {
+            return [];
+        }
+
+        [$json, $keptCount] = $this->encodeArray($paths);
+
+        if ($keptCount < count($paths)) {
+            return ['chronicle.redacted' => $json, 'chronicle.redacted_count' => count($paths)];
+        }
+
+        return ['chronicle.redacted' => $json];
+    }
+
+    /**
+     * The paths redacted() collected, each once, and forgets them.
+     *
+     * @return list<string>
+     */
+    private function takeRedactedPaths(): array
+    {
+        $paths = array_values(array_unique($this->redactedPaths));
+        $this->redactedPaths = [];
+
+        return $paths;
+    }
+
+    /**
+     * Whether the path names a field of the event, or a value inside one: the path itself or the
+     * part of it before one of its dots is a key of the event.
+     *
+     * @param  array<string, mixed>  $event
+     */
+    private function inEvent(string $path, array $event): bool
+    {
+        $prefix = $path;
+
+        while (! array_key_exists($prefix, $event)) {
+            $dot = strrpos($prefix, '.');
+
+            if ($dot === false) {
+                return false;
+            }
+
+            $prefix = substr($prefix, 0, $dot);
+        }
+
+        return true;
     }
 
     /**
@@ -580,6 +656,8 @@ class Chronicle
 
             foreach ($this->redactedWords as $redactedWords) {
                 if (str_contains($words, $redactedWords)) {
+                    $this->redactedPaths[] = mb_strcut($path, 0, self::KEY_BYTES_MAX, 'UTF-8');
+
                     return self::REDACTED;
                 }
             }
@@ -589,7 +667,13 @@ class Chronicle
             return $value;
         }
 
-        return $this->redactor->redact($path, $value);
+        $redacted = $this->redactor->redact($path, $value);
+
+        if ($redacted !== $value) {
+            $this->redactedPaths[] = mb_strcut($path, 0, self::KEY_BYTES_MAX, 'UTF-8');
+        }
+
+        return $redacted;
     }
 
     /**
