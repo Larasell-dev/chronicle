@@ -8,14 +8,18 @@ use Illuminate\Http\Request;
 use Larasell\Chronicle\WideEvents\Requests\Sampler;
 use Symfony\Component\HttpFoundation\Response;
 
-class RecordingSampler implements Sampler
+/**
+ * Keeps every request it is asked about. On the instance, not in a static, so what it saw ends
+ * with the test.
+ */
+final class RecordingSampler implements Sampler
 {
-    /** @var list<mixed> */
-    public static array $seen = [];
+    /** @var list<array{string, int, mixed}> The method, status and url of each call, in order. */
+    public array $seen = [];
 
     public function shouldLog(Request $request, Response $response, array $payload): bool
     {
-        static::$seen = [$request->getMethod(), $response->getStatusCode(), $payload['url']];
+        $this->seen[] = [$request->getMethod(), $response->getStatusCode(), $payload['url']];
 
         return true;
     }

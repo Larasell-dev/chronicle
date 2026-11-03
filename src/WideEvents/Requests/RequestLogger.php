@@ -6,11 +6,9 @@ namespace Larasell\Chronicle\WideEvents\Requests;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Config;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Larasell\Chronicle\WideEvents\ErrorFields;
-use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -21,6 +19,8 @@ class RequestLogger
 {
     public function __construct(
         protected Chronicle $chronicle,
+        // Null keeps every request event.
+        protected ?Sampler $sampler,
     ) {}
 
     /**
@@ -54,7 +54,8 @@ class RequestLogger
 
         $event = $this->chronicle->event('request', $errorFields, defaults: $requestFields);
 
-        if (! $this->shouldSample($request, $response, $event)) {
+        // Without a sampler every request event is kept.
+        if ($this->sampler?->shouldLog($request, $response, $event) === false) {
             return;
         }
 
@@ -71,24 +72,6 @@ class RequestLogger
         $name = $route?->getName();
 
         return $name === null || $name === '' || str_ends_with($name, '.') ? $route?->uri() : $name;
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    protected function shouldSample(Request $request, Response $response, array $payload): bool
-    {
-        if (config('chronicle.sampling') === null) {
-            return true;
-        }
-
-        $sampler = app()->make(Config::string('chronicle.sampling'));
-
-        if (! $sampler instanceof Sampler) {
-            throw InvalidSampler::doesNotImplementSampler($sampler);
-        }
-
-        return $sampler->shouldLog($request, $response, $payload);
     }
 
     protected function levelForStatus(int $status): Level
