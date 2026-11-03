@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "6a0b019fb75ccd7325cbe012814c7d9c966198f9",
+  "always-update": true,
+  "packages": {
+    ".": {
+      "release-type": "php",
+      "package-name": "larasell-dev/chronicle",
+      "include-component-in-tag": false,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "pull-request-title-pattern": "chore: release${component} ${version}"
+    }
+  }
+}

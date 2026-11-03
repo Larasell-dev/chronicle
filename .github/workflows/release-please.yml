@@ -1,0 +1,108 @@
+name: release-please
+
+# Whenever release-please opens or updates its pull request, the prepare job moves the upgrade
+# notes from breaking-changes/ into an "Upgrade guide" section of the new version in CHANGELOG.md
+# and deletes the files on the release branch. Once the release is created, the release-notes job
+# copies that version's CHANGELOG.md section, upgrade guide included, into the GitHub release.
+#
+# release-please only rewrites its branch when the release notes change unless "always-update"
+# is set, which keeps the upgrade guide in sync with main.
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-please
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      prs_created: ${{ steps.release.outputs.prs_created }}
+      pr: ${{ steps.release.outputs.pr }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  prepare:
+    name: Bundle breaking changes into the release pull request
+    needs: release-please
+    if: needs.release-please.outputs.prs_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out release branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Configure Git
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      # Runs again on every rewrite of the release branch; once the notes are moved there is
+      # nothing left to bundle until the next release.
+      - name: Bundle breaking changes into the changelog
+        env:
+          BRANCH: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+        run: |
+          node scripts/breaking-changes.mjs bundle
+          git add --all CHANGELOG.md breaking-changes
+
+          if git diff --cached --quiet; then
+            echo 'No breaking changes to bundle.'
+          else
+            git commit --message 'docs: bundle breaking changes into the changelog'
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+
+  # release-please writes the GitHub release from commit messages, so it lacks the upgrade
+  # guide that the prepare job bundled into CHANGELOG.md. Replace the notes with the changelog
+  # section of the released version.
+  release-notes:
+    name: Add the upgrade guide to the GitHub release
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Update release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          node scripts/breaking-changes.mjs notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+          gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"

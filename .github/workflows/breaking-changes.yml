@@ -1,0 +1,35 @@
+name: Breaking changes
+
+# A pull request whose title is marked as breaking ("feat!: ...") must add an upgrade note to
+# breaking-changes/, and a pull request that adds one must be marked as breaking. Runs on title
+# edits too, since squash merges use the title as the commit release-please reads.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  documented:
+    name: Breaking changes are documented
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check upgrade notes
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/breaking-changes.mjs check
