@@ -16,8 +16,6 @@ class Chronicle
             return;
         }
 
-        $this->assertPostHogConfigured();
-
         $entry = array_merge([
             'timestamp' => now()->toIso8601String(),
             'type' => $type,
@@ -61,28 +59,5 @@ class Chronicle
         }
 
         return $flattened;
-    }
-
-    protected function assertPostHogConfigured(): void
-    {
-        if (! config('chronicle.posthog.enabled', false)) {
-            return;
-        }
-
-        $apiKey = config('chronicle.posthog.api_key');
-
-        if (is_string($apiKey) && $apiKey !== '') {
-            return;
-        }
-
-        if (app()->hasDebugModeEnabled()) {
-            throw ChronicleException::make(
-                code: 'chronicle.posthog.missing-api-key',
-                message: 'POSTHOG_API_KEY is required by chronicle when the posthog channel is enabled, this causes logs to be silently missed. This error stops appearing once POSTHOG_API_KEY is configured',
-                why: 'The posthog channel is enabled but no API key is configured, so events cannot be delivered',
-                fix: 'Set POSTHOG_API_KEY in your environment or disable the channel via CHRONICLE_POSTHOG_ENABLED=false',
-                link: 'https://github.com/larasell-dev/chronicle#posthog',
-            );
-        }
     }
 }

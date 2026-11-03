@@ -54,6 +54,7 @@ class ChronicleServiceProvider extends ServiceProvider
                     scope: $config['scope'] ?? 'chronicle',
                     level: $config['level'] ?? Logger::INFO,
                     provider: $app->has(LoggerProviderInterface::class) ? $app->make(LoggerProviderInterface::class) : null,
+                    debug: $app->hasDebugModeEnabled(),
                 );
 
                 return new Logger($app->environment(), [$handler]);
