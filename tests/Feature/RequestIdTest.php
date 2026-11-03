@@ -6,29 +6,11 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestId;
-use Monolog\Handler\TestHandler;
 
 // As apps should register it: first of all global middleware.
 beforeEach(function () {
     $this->app->make(Kernel::class)->prependMiddleware(LogRequests::class);
 });
-
-function requestIdTestHandler(): TestHandler
-{
-    config()->set('chronicle.enabled', true);
-    // Chronicle and the app's own log lines share one handler, through a stack of the app channel.
-    config()->set('chronicle.default', 'test');
-    config()->set('chronicle.channels.test', [
-        'driver' => 'stack',
-        'channels' => ['chronicle_request_id_test'],
-    ]);
-    config()->set('logging.channels.chronicle_request_id_test', [
-        'driver' => 'monolog',
-        'handler' => TestHandler::class,
-    ]);
-
-    return Log::channel('chronicle_request_id_test')->getHandlers()[0];
-}
 
 function isUuidV7(?string $value): bool
 {
@@ -36,19 +18,19 @@ function isUuidV7(?string $value): bool
 }
 
 it('assigns every request a UUIDv7, sends it back and logs it', function () {
-    $handler = requestIdTestHandler();
+    $handler = chronicleTestHandler();
     Route::get('/ping', fn () => 'ok');
 
     $id = $this->get('/ping')->assertOk()->headers->get('X-Request-Id');
 
     expect(isUuidV7($id))->toBeTrue()
-        ->and(json_decode($handler->getRecords()[0]->message, true)['request.id'])->toBe($id);
+        ->and(chronicleEntries($handler)[0]['request.id'])->toBe($id);
 });
 
 it('assigns the id before the request is handled, so every log line of the request carries it', function () {
-    $handler = requestIdTestHandler();
+    $handler = chronicleTestHandler();
     Route::get('/work', function () {
-        Log::channel('chronicle_request_id_test')->info('working');
+        Log::channel('app_test')->info('working');
 
         return RequestId::current();
     });
@@ -74,14 +56,14 @@ it('gives every request its own id', function () {
 });
 
 it('keeps a well-formed id the client sends', function (string $id) {
-    $handler = requestIdTestHandler();
+    $handler = chronicleTestHandler();
     Route::get('/ping', fn () => RequestId::current());
 
     $response = $this->get('/ping', ['X-Request-Id' => $id]);
 
     expect($response->headers->get('X-Request-Id'))->toBe($id)
         ->and($response->getContent())->toBe($id)
-        ->and(json_decode($handler->getRecords()[0]->message, true)['request.id'])->toBe($id);
+        ->and(chronicleEntries($handler)[0]['request.id'])->toBe($id);
 })->with([
     'a proxy id' => ['storefront-7f3a.42'],
     'one character' => ['a'],

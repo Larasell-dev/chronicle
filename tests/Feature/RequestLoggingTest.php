@@ -12,32 +12,9 @@ use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
-use Monolog\Handler\TestHandler;
 use Monolog\Level;
-use Monolog\Logger;
 use Monolog\LogRecord;
 use RuntimeException;
-
-function chronicleTestHandler(): TestHandler
-{
-    config()->set('chronicle.enabled', true);
-    config()->set('chronicle.default', 'test');
-    $handler = new TestHandler;
-    config()->set('chronicle.channels.test', [
-        'driver' => 'custom',
-        'via' => fn (): Logger => new Logger('test', [$handler]),
-    ]);
-
-    return $handler;
-}
-
-function chronicleEntries(TestHandler $handler): array
-{
-    return array_map(
-        fn (LogRecord $record) => json_decode($record->message, true),
-        $handler->getRecords(),
-    );
-}
 
 it('writes one structured json entry per request', function () {
     config()->set('chronicle.enabled', true);
