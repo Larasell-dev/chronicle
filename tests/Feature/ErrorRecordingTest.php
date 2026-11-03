@@ -152,20 +152,50 @@ it('does not merge context from exceptions without a context method', function (
     expect(errorEntries($handler)[0])->not->toHaveKeys(['correlation_id']);
 });
 
-it('truncates long context values', function () {
+// One byte below, at and above the 1000-byte limit, so an off-by-one in the cut fails.
+it('truncates long context values', function (int $length, int $expected) {
     $handler = errorTestHandler();
 
-    $e = new class('boom') extends RuntimeException
+    $e = new class('boom', $length) extends RuntimeException
     {
+        public function __construct(string $message, private int $length)
+        {
+            parent::__construct($message);
+        }
+
         public function context(): array
         {
-            return ['raw' => str_repeat('a', 1500)];
+            return ['raw' => str_repeat('a', $this->length)];
         }
     };
 
     app(Chronicle::class)->recordError($e);
 
-    expect(strlen(errorEntries($handler)[0]['raw']))->toBe(1000);
+    expect(strlen(errorEntries($handler)[0]['raw']))->toBe($expected);
+})->with([
+    '999 bytes' => [999, 999],
+    '1000 bytes' => [1000, 1000],
+    '1001 bytes' => [1001, 1000],
+    '1500 bytes' => [1500, 1000],
+]);
+
+it('ignores an exception context that is not an array', function () {
+    $handler = errorTestHandler();
+
+    $e = new class('boom') extends RuntimeException
+    {
+        public function context(): string
+        {
+            return 'not an array';
+        }
+    };
+
+    app(Chronicle::class)->recordError($e);
+
+    $entry = errorEntries($handler)[0];
+
+    expect($entry['error.message'])->toBe('boom')
+        ->and($entry)->not->toContain('not an array');
 });
 
 it('accepts an explicit level in record error', function () {

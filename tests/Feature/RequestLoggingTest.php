@@ -91,38 +91,26 @@ it('does not log when disabled', function () {
     expect(file_exists(storage_path('logs/chronicle.log')))->toBeFalse();
 });
 
-it('logs 2xx responses at info level', function () {
+// Each status on both sides of a boundary between levels, so an off-by-one in a comparison fails.
+it('logs a request at the level its status falls into', function (int $status, Level $level) {
     $handler = chronicleTestHandler();
 
-    Route::get('/ok', fn () => 'ok')->middleware(LogRequests::class);
+    Route::get('/status', fn () => response('', $status))->middleware(LogRequests::class);
 
-    $this->get('/ok');
-
-    expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Info);
-});
-
-it('logs 3xx responses at info level', function () {
-    $handler = chronicleTestHandler();
-
-    Route::get('/redirect', fn () => redirect('/ok'))->middleware(LogRequests::class);
-
-    $this->get('/redirect');
+    $this->get('/status');
 
     expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Info);
-});
-
-it('logs 4xx responses at warning level', function () {
-    $handler = chronicleTestHandler();
-
-    Route::get('/not-found', fn () => abort(404))->middleware(LogRequests::class);
-
-    $this->get('/not-found');
-
-    expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Warning);
-});
+        ->and($handler->getRecords()[0]->level)->toBe($level)
+        ->and(chronicleEntries($handler)[0]['status'])->toBe($status);
+})->with([
+    '200' => [200, Level::Info],
+    '302' => [302, Level::Info],
+    '399, the last info status' => [399, Level::Info],
+    '400, the first warning status' => [400, Level::Warning],
+    '499, the last warning status' => [499, Level::Warning],
+    '500, the first error status' => [500, Level::Error],
+    '599' => [599, Level::Error],
+]);
 
 it('logs 5xx responses at error level', function () {
     $handler = chronicleTestHandler();
@@ -366,6 +354,50 @@ it('flattens fields in chronicle record and merges context under them', function
         ->and($entry['job.id'])->toBe(7)
         ->and($entry)->not->toHaveKey('order');
 });
+
+it('accepts a level name as a string in chronicle record', function () {
+    $handler = chronicleTestHandler();
+
+    app(Chronicle::class)->record('order.paid', [], 'warning');
+
+    expect($handler->getRecords()[0]->level)->toBe(Level::Warning);
+});
+
+// A typo in a level is a programmer error, so it must fail loudly rather than log at a guess.
+it('refuses an unknown level name and writes nothing', function () {
+    $handler = chronicleTestHandler();
+
+    expect(fn () => app(Chronicle::class)->record('order.paid', [], 'loud'))->toThrow(Error::class)
+        ->and($handler->getRecords())->toHaveCount(0);
+});
+
+it('flattens fields nested several levels deep', function () {
+    $handler = chronicleTestHandler();
+
+    app(Chronicle::class)->record('order.paid', [
+        'order' => ['customer' => ['address' => ['country' => 'DE', 'lines' => ['a', 'b']]]],
+    ]);
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['order.customer.address.country'])->toBe('DE')
+        ->and($entry['order.customer.address.lines'])->toBe('["a","b"]')
+        ->and($entry)->not->toHaveKeys(['order', 'order.customer', 'order.customer.address']);
+});
+
+// The JSON of a list is cut at 1000 bytes; one byte below, at and above the limit.
+it('cuts the json of a list at 1000 bytes', function (int $length, int $expected) {
+    $handler = chronicleTestHandler();
+
+    // ["…"] adds four bytes around the string.
+    app(Chronicle::class)->record('order.paid', ['tags' => [str_repeat('a', $length - 4)]]);
+
+    expect(strlen(chronicleEntries($handler)[0]['tags']))->toBe($expected);
+})->with([
+    '999 bytes' => [999, 999],
+    '1000 bytes' => [1000, 1000],
+    '1001 bytes' => [1001, 1000],
+]);
 
 it('drops request logs when the sampler returns false', function () {
     $handler = chronicleTestHandler();

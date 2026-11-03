@@ -7,6 +7,7 @@ use Illuminate\Support\Str;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestId;
 use Monolog\Handler\TestHandler;
+use Monolog\Logger;
 
 // As apps should register it: first of all global middleware.
 beforeEach(function () {
@@ -16,13 +17,14 @@ beforeEach(function () {
 function requestIdTestHandler(): TestHandler
 {
     config()->set('chronicle.enabled', true);
-    config()->set('chronicle.channel', 'chronicle_request_id_test');
-    config()->set('logging.channels.chronicle_request_id_test', [
-        'driver' => 'monolog',
-        'handler' => TestHandler::class,
+    config()->set('chronicle.default', 'test');
+    $handler = new TestHandler;
+    config()->set('chronicle.channels.test', [
+        'driver' => 'custom',
+        'via' => fn (): Logger => new Logger('test', [$handler]),
     ]);
 
-    return Log::channel('chronicle_request_id_test')->getHandlers()[0];
+    return $handler;
 }
 
 function isUuidV7(?string $value): bool
@@ -41,9 +43,13 @@ it('assigns every request a UUIDv7, sends it back and logs it', function () {
 });
 
 it('assigns the id before the request is handled, so every log line of the request carries it', function () {
-    $handler = requestIdTestHandler();
+    $handler = new TestHandler;
+    config()->set('logging.channels.app_test', [
+        'driver' => 'custom',
+        'via' => fn (): Logger => new Logger('app_test', [$handler]),
+    ]);
     Route::get('/work', function () {
-        Log::channel('chronicle_request_id_test')->info('working');
+        Log::channel('app_test')->info('working');
 
         return RequestId::current();
     });
@@ -81,6 +87,7 @@ it('keeps a well-formed id the client sends', function (string $id) {
     'a proxy id' => ['storefront-7f3a.42'],
     'one character' => ['a'],
     '200 characters' => [str_repeat('a', 200)],
+    '! and ~, the first and last visible ASCII' => ['!~'],
 ]);
 
 it('replaces malformed ids the client sends with its own', function (string $id) {
@@ -92,6 +99,8 @@ it('replaces malformed ids the client sends with its own', function (string $id)
     '201 characters' => [str_repeat('a', 201)],
     'a space' => ['has space'],
     'not ASCII' => ['anfrage-ä'],
+    'DEL, just past visible ASCII' => ["id\x7F"],
+    'a trailing newline' => ["id\n"],
 ]);
 
 it('has no current id outside a request', function () {

@@ -69,6 +69,7 @@ function posthogSeverityForLevel(string|int|Level $level): int
         'driver' => 'posthog',
         'api_key' => 'phc_test',
         'host' => 'https://us.i.posthog.com',
+        'level' => 'debug',
     ]);
 
     $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
@@ -117,9 +118,14 @@ it('emits chronicle entries as otel log records', function () {
 it('maps monolog levels to otel severities', function (string|int|Level $level, int $expected) {
     expect(posthogSeverityForLevel($level))->toBe($expected);
 })->with([
+    ['debug', Severity::DEBUG->value],
     ['info', Severity::INFO->value],
+    ['notice', Severity::INFO->value],
     ['warning', Severity::WARN->value],
     ['error', Severity::ERROR->value],
+    ['critical', Severity::FATAL->value],
+    ['alert', Severity::FATAL->value],
+    ['emergency', Severity::FATAL->value],
     [Level::Warning, Severity::WARN->value],
     [Level::Error, Severity::ERROR->value],
 ]);
@@ -154,6 +160,47 @@ it('maps entry fields to otel attributes', function () {
         'sessionId' => 'sess_abc',
     ])->not->toHaveKeys(['timestamp', 'type']);
 });
+
+// 0 is a valid id that a truthiness check would drop; null means no user and must link nobody.
+it('links a person and a session only when the event has their ids', function (mixed $id, array $expected, array $missing) {
+    $handler = new class('https://us.i.posthog.com', 'phc_test') extends PostHogHandler
+    {
+        /**
+         * @return array<string, scalar>
+         */
+        public function exposedAttributes(array $entry): array
+        {
+            return $this->attributes($entry);
+        }
+    };
+
+    $attributes = $handler->exposedAttributes(['type' => 'request', 'user.id' => $id, 'session.id' => $id]);
+
+    expect($attributes)->toMatchArray($expected)->not->toHaveKeys($missing);
+})->with([
+    'id 0' => [0, ['posthogDistinctId' => '0', 'sessionId' => '0'], []],
+    'null' => [null, [], ['posthogDistinctId', 'sessionId']],
+]);
+
+it('skips messages that are not a chronicle event', function (string $message) {
+    $emitted = [];
+
+    $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
+
+    config()->set('logging.channels.chronicle', [
+        'driver' => 'posthog',
+        'api_key' => 'phc_test',
+        'host' => 'https://us.i.posthog.com',
+    ]);
+
+    Log::channel('chronicle')->info($message);
+
+    expect($emitted)->toHaveCount(0);
+})->with([
+    'plain text' => ['user signed in'],
+    'a json string' => ['"user signed in"'],
+    'truncated json' => ['{"type":"request"'],
+]);
 
 it('throws in debug mode when the posthog channel is enabled without an api key', function () {
     config()->set('app.debug', true);
