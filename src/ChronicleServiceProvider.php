@@ -10,9 +10,13 @@ use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Log\LogManager;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\ServiceProvider;
+use InvalidArgumentException;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
+use Monolog\Level;
 use Monolog\Logger;
 
 class ChronicleServiceProvider extends ServiceProvider
@@ -38,13 +42,25 @@ class ChronicleServiceProvider extends ServiceProvider
     {
         $this->app->extend('log', function (LogManager $logger): LogManager {
             $logger->extend('posthog', function (Application $app, array $config): Logger {
+                // An unset POSTHOG_API_KEY is null; the handler treats an empty key as missing.
+                $apiKey = $config['api_key'] ?? '';
+                $level = strtoupper(Arr::string($config, 'level', 'info'));
+
+                if (! is_string($apiKey)) {
+                    throw new InvalidArgumentException('The api_key of the posthog channel must be a string.');
+                }
+
+                if (! in_array($level, Level::NAMES, true)) {
+                    throw new InvalidArgumentException("The level of the posthog channel must be a log level, [{$level}] given.");
+                }
+
                 $handler = new PostHogHandler(
-                    host: (string) ($config['host'] ?? 'https://us.i.posthog.com'),
-                    apiKey: (string) ($config['api_key'] ?? ''),
+                    host: Arr::string($config, 'host', 'https://us.i.posthog.com'),
+                    apiKey: $apiKey,
                     http: $app->make(HttpFactory::class),
-                    service: (string) config('app.name', 'laravel'),
-                    scope: $config['scope'] ?? 'chronicle',
-                    level: $config['level'] ?? Logger::INFO,
+                    service: Config::string('app.name', 'laravel'),
+                    scope: Arr::string($config, 'scope', 'chronicle'),
+                    level: Level::fromName($level),
                     debug: $app->hasDebugModeEnabled(),
                 );
 
@@ -57,7 +73,7 @@ class ChronicleServiceProvider extends ServiceProvider
                     fn () => $handler->flush(),
                 );
 
-                return new Logger($app->environment(), [$handler]);
+                return new Logger(Config::string('app.env', 'production'), [$handler]);
             });
 
             return $logger;

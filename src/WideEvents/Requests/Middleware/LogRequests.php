@@ -23,6 +23,9 @@ class LogRequests
         protected RequestLogger $logger,
     ) {}
 
+    /**
+     * @param  Closure(Request): Response  $next
+     */
     public function handle(Request $request, Closure $next): Response
     {
         if (! config('chronicle.enabled', true)) {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
@@ -25,14 +26,9 @@ it('writes one structured json entry per request', function () {
 
     $this->post('/login', ['email' => 'nils@example.com']);
 
-    $log = file_get_contents(chronicleLogPath());
+    $entry = chronicleEntry(explode("\n", trim(File::get(chronicleLogPath())))[0]);
 
-    expect($log)->toBeString();
-
-    $entry = json_decode(trim(explode("\n", trim($log))[0]), true);
-
-    expect($entry)->toBeArray()
-        ->and($entry['type'])->toBe('request')
+    expect($entry['type'])->toBe('request')
         ->and($entry['method'])->toBe('POST')
         ->and($entry['url'])->toBe('http://localhost/login')
         ->and($entry['status'])->toBe(200)
@@ -108,7 +104,7 @@ it('logs 5xx responses at error level', function () {
 
     $records = array_values(array_filter(
         $handler->getRecords(),
-        fn (LogRecord $record) => (json_decode($record->message, true)['type'] ?? null) === 'request',
+        fn (LogRecord $record) => (chronicleEntry($record->message)['type'] ?? null) === 'request',
     ));
 
     expect($records)->toHaveCount(1)

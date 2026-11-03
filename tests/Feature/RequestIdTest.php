@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -11,7 +12,13 @@ use Larasell\Chronicle\WideEvents\Requests\RequestId;
 
 // As apps should register it: first of all global middleware.
 beforeEach(function () {
-    $this->app->make(Kernel::class)->prependMiddleware(LogRequests::class);
+    $kernel = app(Kernel::class);
+
+    if (! $kernel instanceof HttpKernel) {
+        throw new UnexpectedValueException('The tests need an HTTP kernel that can prepend middleware.');
+    }
+
+    $kernel->prependMiddleware(LogRequests::class);
 });
 
 function isUuidV7(?string $value): bool

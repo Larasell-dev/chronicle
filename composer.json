@@ -13,7 +13,8 @@
     "require-dev": {
         "laravel/pint": "^1.22",
         "orchestra/testbench": "^10.0|^11.0",
-        "pestphp/pest": "^5.0"
+        "pestphp/pest": "^5.0",
+        "phpstan/phpstan": "^2.1"
     },
     "autoload": {
         "psr-4": {
@@ -27,11 +28,13 @@
     },
     "scripts": {
         "test": "pest",
+        "analyse": "phpstan analyse",
         "format": "pint",
         "format:check": "pint --test"
     },
     "scripts-descriptions": {
         "test": "Run the test suite",
+        "analyse": "Run PHPStan at its strictest level",
         "format": "Fix code style with Pint",
         "format:check": "Check code style with Pint without fixing"
     },

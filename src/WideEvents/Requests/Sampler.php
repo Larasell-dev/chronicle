@@ -9,5 +9,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 interface Sampler
 {
+    /**
+     * @param  array<string, mixed>  $payload  The request event, flattened, as Chronicle would write it.
+     */
     public function shouldLog(Request $request, Response $response, array $payload): bool;
 }

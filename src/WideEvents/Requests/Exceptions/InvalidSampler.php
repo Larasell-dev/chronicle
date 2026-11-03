@@ -16,12 +16,12 @@ final class InvalidSampler extends LogicException implements StructuredException
 {
     use HasStructuredException;
 
-    public static function doesNotImplementSampler(object $sampler): self
+    public static function doesNotImplementSampler(mixed $sampler): self
     {
         return self::structured(
             code: 'chronicle.sampling.invalid-sampler',
             message: 'chronicle.sampling must resolve to an instance of '.Sampler::class,
-            why: 'chronicle.sampling resolved to '.$sampler::class,
+            why: 'chronicle.sampling resolved to '.get_debug_type($sampler),
             fix: 'Implement the '.Sampler::class.' contract or remove the chronicle.sampling config',
         );
     }

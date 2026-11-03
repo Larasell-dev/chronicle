@@ -16,8 +16,8 @@ use Throwable;
 final class ErrorFields
 {
     /**
-     * @param  array<string, mixed>  $context
-     * @return array<string, mixed>
+     * @param  array<mixed>  $context
+     * @return array<mixed>
      */
     public static function for(Throwable $e, array $context = []): array
     {
@@ -34,6 +34,9 @@ final class ErrorFields
         ]);
     }
 
+    /**
+     * @return array<mixed>
+     */
     private static function exceptionContext(Throwable $e): array
     {
         if (! method_exists($e, 'context')) {

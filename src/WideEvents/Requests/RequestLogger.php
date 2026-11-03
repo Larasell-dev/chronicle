@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle\WideEvents\Requests;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\WideEvents\ErrorFields;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
@@ -23,6 +25,7 @@ class RequestLogger
 
     public function log(Request $request, Response $response, float $startTime): void
     {
+        $user = $request->user();
         $payload = [
             'request' => [
                 // LogRequests' id in Context replaces this one; it only shows when the logger is called directly.
@@ -35,7 +38,7 @@ class RequestLogger
             'duration_ms' => round((microtime(true) - $startTime) * 1000, 2),
             'ip' => $request->ip(),
             'user' => [
-                'id' => $request->user()?->getAuthIdentifier(),
+                'id' => $user instanceof Authenticatable ? $user->getAuthIdentifier() : null,
             ],
         ];
 
@@ -63,15 +66,16 @@ class RequestLogger
         return $name === null || $name === '' || str_ends_with($name, '.') ? $route?->uri() : $name;
     }
 
+    /**
+     * @param  array<string, mixed>  $payload
+     */
     protected function shouldSample(Request $request, Response $response, array $payload): bool
     {
-        $sampler = config('chronicle.sampling');
-
-        if ($sampler === null) {
+        if (config('chronicle.sampling') === null) {
             return true;
         }
 
-        $sampler = app()->make($sampler);
+        $sampler = app()->make(Config::string('chronicle.sampling'));
 
         if (! $sampler instanceof Sampler) {
             throw InvalidSampler::doesNotImplementSampler($sampler);
