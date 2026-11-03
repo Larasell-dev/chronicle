@@ -681,6 +681,11 @@ it('cuts the unencodable report to 1000 bytes of valid json and counts every val
         ->and($entry['chronicle.unencodable_count'])->toBe(100);
 });
 
+it('registers chronicle channels at boot, pointing stacks at chronicle channels', function () {
+    // Act & Assert
+    expect(config('logging.channels.chronicle-stack.channels'))->toBe(['chronicle-file', 'chronicle-posthog']);
+});
+
 it('drops request logs when the sampler returns false', function () {
     // Arrange
     $handler = chronicleTestHandler();

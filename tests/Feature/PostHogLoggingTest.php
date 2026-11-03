@@ -277,8 +277,7 @@ it('throws in debug mode when the posthog channel is enabled without an api key'
     Http::fake();
 
     config()->set('app.debug', true);
-    config()->set('chronicle.channels.posthog.api_key', null);
-    config()->set('chronicle.default', 'posthog');
+    config()->set('chronicle.default', 'posthog_without_key');
 
     // Act & Assert
     app(Chronicle::class)->record('request');
@@ -289,8 +288,7 @@ it('does not throw outside debug mode when the api key is missing', function () 
     Http::fake();
 
     config()->set('app.debug', false);
-    config()->set('chronicle.channels.posthog.api_key', null);
-    config()->set('chronicle.default', 'posthog');
+    config()->set('chronicle.default', 'posthog_without_key');
 
     // Act
     app(Chronicle::class)->record('request');
@@ -304,8 +302,6 @@ it('writes only to the log file by default', function () {
     // Arrange
     Http::fake();
 
-    config()->set('chronicle.channels.posthog.api_key', 'phc_test');
-
     // Act
     app(Chronicle::class)->record('ping');
     app()->terminate();
@@ -318,8 +314,6 @@ it('writes only to the log file by default', function () {
 it('writes to the log file and to PostHog through the stack channel', function () {
     // Arrange
     Http::fake();
-
-    config()->set('chronicle.channels.posthog.api_key', 'phc_test');
 
     config()->set('chronicle.default', 'stack');
 
