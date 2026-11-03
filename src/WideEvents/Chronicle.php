@@ -2,14 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Larasell\Chronicle;
+namespace Larasell\Chronicle\WideEvents;
 
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\WideEvents\Enums\Level;
-use Larasell\Chronicle\WideEvents\ErrorFields;
 use Psr\Log\LoggerInterface;
 use Throwable;
 

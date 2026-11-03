@@ -7,7 +7,7 @@ namespace Larasell\Chronicle\WideEvents\Requests;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
-use Larasell\Chronicle\Chronicle;
+use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Larasell\Chronicle\WideEvents\ErrorFields;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
