@@ -8,7 +8,8 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * The structured InvalidArgumentException to throw inline, for programming errors that need no class of their own.
+ * The structured InvalidArgumentException to throw inline, for programming errors that need no class of their own:
+ * throw new StructuredInvalidArgumentException(code: 'teams.unknown-role', message: 'There is no role named owner2', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredInvalidArgumentException extends InvalidArgumentException implements StructuredException

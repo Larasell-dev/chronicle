@@ -8,7 +8,8 @@ use OutOfBoundsException;
 use Throwable;
 
 /**
- * The structured OutOfBoundsException to throw inline, for runtime failures that need no class of their own.
+ * The structured OutOfBoundsException to throw inline, for runtime failures that need no class of their own:
+ * throw new StructuredOutOfBoundsException(code: 'inventory.unknown-sku', message: 'No stock entry for SKU-42', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredOutOfBoundsException extends OutOfBoundsException implements StructuredException

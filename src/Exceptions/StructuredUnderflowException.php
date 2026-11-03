@@ -8,7 +8,8 @@ use Throwable;
 use UnderflowException;
 
 /**
- * The structured UnderflowException to throw inline, for runtime failures that need no class of their own.
+ * The structured UnderflowException to throw inline, for runtime failures that need no class of their own:
+ * throw new StructuredUnderflowException(code: 'jobs.queue-empty', message: 'No job is left to take', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredUnderflowException extends UnderflowException implements StructuredException

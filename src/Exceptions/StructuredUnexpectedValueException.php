@@ -8,7 +8,8 @@ use Throwable;
 use UnexpectedValueException;
 
 /**
- * The structured UnexpectedValueException to throw inline, for runtime failures that need no class of their own.
+ * The structured UnexpectedValueException to throw inline, for runtime failures that need no class of their own:
+ * throw new StructuredUnexpectedValueException(code: 'payments.unknown-status', message: 'The provider returned status frozen', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredUnexpectedValueException extends UnexpectedValueException implements StructuredException

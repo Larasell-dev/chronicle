@@ -8,7 +8,8 @@ use OverflowException;
 use Throwable;
 
 /**
- * The structured OverflowException to throw inline, for runtime failures that need no class of their own.
+ * The structured OverflowException to throw inline, for runtime failures that need no class of their own:
+ * throw new StructuredOverflowException(code: 'uploads.queue-full', message: 'The upload queue is full', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredOverflowException extends OverflowException implements StructuredException

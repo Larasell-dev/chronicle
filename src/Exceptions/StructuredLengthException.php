@@ -8,7 +8,8 @@ use LengthException;
 use Throwable;
 
 /**
- * The structured LengthException to throw inline, for programming errors that need no class of their own.
+ * The structured LengthException to throw inline, for programming errors that need no class of their own:
+ * throw new StructuredLengthException(code: 'coupons.code-too-long', message: 'Coupon codes have at most 20 characters', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredLengthException extends LengthException implements StructuredException
