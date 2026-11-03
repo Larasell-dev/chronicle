@@ -47,4 +47,23 @@ return [
      * every request event.
      */
     'sampler' => null,
+
+    /*
+     * The keys whose values Chronicle logs as "[redacted]", wherever they
+     * are in an event. A key matches when it contains one of these
+     * as whole words, in any case: token matches access_token, X-Csrf-Token
+     * and apiToken, but not tokens.
+     */
+    'redact' => [
+        'password', 'passwd', 'secret', 'token', 'api_key', 'apikey',
+        'authorization', 'cookie', 'credential', 'credentials', 'private_key',
+        'signature', 'sig', 'card_number', 'cvc', 'cvv', 'iban',
+    ],
+
+    /*
+     * The class that decides what to log of every value after that, e.g. to
+     * mask emails. It must implement Larasell\Chronicle\WideEvents\Redactor.
+     * Leave it null to log values as they are.
+     */
+    'redactor' => null,
 ];
