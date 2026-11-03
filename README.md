@@ -1,0 +1,197 @@
+# Chronicle
+
+Chronicle adds two things to your Laravel app: structured exceptions and wide event logging.
+
+Structured exceptions give an exception a stable code, the reason it happened, and a fix, so you
+can count and alert on an error by its code, and whoever reads it knows what to do next. Wide
+event logging writes one event per unit of work, like a request or a job, that holds everything
+your app knows about it. When something goes wrong, you read one event instead of piecing the
+story together from scattered log lines.
+
+```json
+{"timestamp":"2026-11-02T14:03:12+00:00","type":"request","request.id":"019a48c2-7f3e-7b21-9c4d-2e5f8a1b3c6d","method":"POST","url":"https://shop.test/checkout","route":"checkout.store","status":500,"duration_ms":812.4,"user.id":42,"cart.items":3,"error.code":"billing.card-declined","error.message":"Payment failed: card declined","error.fix":"Try a different card"}
+```
+
+Events go to a log file, to [PostHog](https://posthog.com), or both. Read the
+[full documentation](https://larasell.dev/docs/packages/chronicle) for every option.
+
+## Installation
+
+Chronicle requires PHP 8.4 and Laravel 12 or 13. You can install the package via Composer:
+
+```bash
+composer require larasell-dev/chronicle
+```
+
+You can publish the config file with:
+
+```bash
+php artisan vendor:publish --tag="chronicle.config"
+```
+
+This is the contents of the published config file, without its comments:
+
+```php
+return [
+    'enabled' => env('CHRONICLE_ENABLED', true),
+    'default' => env('CHRONICLE_CHANNEL', 'file'),
+    'channels' => [
+        'stack' => ['driver' => 'stack', 'channels' => ['file', 'posthog'], 'ignore_exceptions' => false],
+        'file' => ['driver' => 'single', 'path' => storage_path('logs/chronicle.log'), 'formatter' => ChronicleFormatter::class, 'level' => 'info'],
+        'posthog' => ['driver' => 'posthog', 'api_key' => env('POSTHOG_API_KEY'), 'host' => env('POSTHOG_HOST', PostHogHandler::HOST_DEFAULT), 'level' => PostHogHandler::LEVEL_DEFAULT],
+    ],
+    'sampler' => null,
+    'redact' => [
+        'password', 'passwd', 'secret', 'token', 'api_key', 'apikey',
+        'authorization', 'cookie', 'credential', 'credentials', 'private_key',
+        'signature', 'sig', 'card_number', 'cvc', 'cvv', 'iban',
+    ],
+    'redactor' => null,
+    'log_jobs' => env('CHRONICLE_LOG_JOBS', false),
+    'log_ip' => env('CHRONICLE_LOG_IP', true),
+];
+```
+
+To send events to PostHog as well as the log file, set two environment variables:
+
+```dotenv
+CHRONICLE_CHANNEL=stack
+POSTHOG_API_KEY=phc_...
+```
+
+## Usage
+
+### Log every request
+
+Prepend the `LogRequests` middleware in `bootstrap/app.php`, so it runs before any other
+middleware and every request, a 404 included, gets one event and an `X-Request-Id`:
+
+```php
+use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
+
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->prepend(LogRequests::class);
+})
+```
+
+Add it once, in your app. Packages shouldn't add it.
+
+### Add fields to the current event
+
+`add()` puts a field on the event of the current request or job, and only on it:
+
+```php
+use Larasell\Chronicle\Facades\Chronicle;
+
+Chronicle::add('cart', ['items' => 3, 'total' => 8900]);
+```
+
+Fields you put in Laravel's `Context` are added to every event too, and to every log line and
+queued job of the request.
+
+### Record your own events
+
+```php
+use Larasell\Chronicle\Facades\Chronicle;
+use Larasell\Chronicle\WideEvents\Enums\Level;
+
+Chronicle::record('inventory.low', ['sku' => 'SKU-42', 'stock' => 2], Level::Warning);
+
+Chronicle::recordError($exception, ['order.id' => 7]);
+```
+
+### Throw structured exceptions
+
+Throw one of the structured SPL exceptions inline:
+
+```php
+use Larasell\Chronicle\Exceptions\StructuredRuntimeException;
+
+throw new StructuredRuntimeException(
+    errorCode: 'billing.card-declined',
+    message: 'Payment failed: card declined',
+    why: 'The issuer declined the charge',
+    fix: 'Try a different card',
+);
+```
+
+Or give an error a class of its own:
+
+```php
+use Larasell\Chronicle\Exceptions\HasStructuredException;
+use Larasell\Chronicle\Exceptions\StructuredException;
+
+final class PaymentDeclined extends Exception implements StructuredException
+{
+    use HasStructuredException;
+
+    public static function byIssuer(): self
+    {
+        return self::structured(
+            errorCode: 'billing.card-declined',
+            message: 'Payment failed: card declined',
+            fix: 'Try a different card',
+        );
+    }
+}
+```
+
+### Log queued jobs
+
+Set `CHRONICLE_LOG_JOBS=true` to record one `job` event for every attempt of a queued job, with
+the fields `add()` collects while it runs.
+
+### Redact secrets
+
+Chronicle logs the value of every key that contains a word from `redact` as `[redacted]`,
+wherever it is in an event: in fields, `Context`, the query, and route parameters. A token in a
+path, as in `/reset-password/{token}`, is logged as the route's template.
+
+### Test what your code records
+
+`Chronicle::fake()` keeps the finished events instead of writing them:
+
+```php
+use Larasell\Chronicle\Facades\Chronicle;
+
+it('records the checkout', function () {
+    $chronicle = Chronicle::fake();
+
+    $this->post('/checkout');
+
+    $chronicle->assertRecorded('request', fn (array $event) => $event['cart.items'] === 3);
+});
+```
+
+## Testing
+
+```bash
+composer test
+```
+
+## Changelog
+
+Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently. Breaking
+changes come with an upgrade guide.
+
+## Security Vulnerabilities
+
+Please report security vulnerabilities through
+[GitHub Security Advisories](https://github.com/larasell-dev/chronicle/security/advisories/new) or
+by email to [nils@larasell.dev](mailto:nils@larasell.dev), not in a public issue.
+
+## Credits
+
+- [Nils Haberkamp](https://github.com/haberkamp)
+- [All Contributors](../../contributors)
+
+## About us
+
+Chronicle is built by [Larasell](https://larasell.dev), an e-commerce framework for Laravel
+developers. Larasell lets you own the full application and customise everything from business
+logic to the storefront. Chronicle is the logging package Larasell and its packages use, and it
+works in any Laravel app.
+
+## License
+
+The MIT License (MIT). Please see [License File](LICENSE) for more information.
