@@ -8,14 +8,16 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
+use Larasell\Chronicle\Exceptions\StructuredInvalidArgumentException;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
 use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
+use Larasell\Chronicle\WideEvents\Enums\Level;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
-use Monolog\Level;
+use Monolog\Level as MonologLevel;
 use Monolog\LogRecord;
 use RuntimeException;
 
@@ -82,7 +84,7 @@ it('logs 2xx responses at info level', function () {
 
     // Assert
     expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Info);
+        ->and($handler->getRecords()[0]->level)->toBe(MonologLevel::Info);
 });
 
 it('logs 3xx responses at info level', function () {
@@ -96,7 +98,7 @@ it('logs 3xx responses at info level', function () {
 
     // Assert
     expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Info);
+        ->and($handler->getRecords()[0]->level)->toBe(MonologLevel::Info);
 });
 
 it('logs 4xx responses at warning level', function () {
@@ -110,7 +112,7 @@ it('logs 4xx responses at warning level', function () {
 
     // Assert
     expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Warning);
+        ->and($handler->getRecords()[0]->level)->toBe(MonologLevel::Warning);
 });
 
 it('logs 5xx responses at error level', function () {
@@ -129,7 +131,7 @@ it('logs 5xx responses at error level', function () {
     ));
 
     expect($records)->toHaveCount(1)
-        ->and($records[0]->level)->toBe(Level::Error);
+        ->and($records[0]->level)->toBe(MonologLevel::Error);
 });
 
 it('logs a failed request as a single event with the exception merged', function () {
@@ -370,8 +372,35 @@ it('accepts an explicit level in chronicle record', function () {
 
     // Assert
     expect($handler->getRecords())->toHaveCount(1)
-        ->and($handler->getRecords()[0]->level)->toBe(Level::Warning)
+        ->and($handler->getRecords()[0]->level)->toBe(MonologLevel::Warning)
         ->and(chronicleEntries($handler)[0]['status'])->toBe(200);
+});
+
+it('accepts a level by its name, in any case', function (string $name, MonologLevel $expected) {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('request', level: $name);
+
+    // Assert
+    expect($handler->getRecords()[0]->level)->toBe($expected);
+})->with([
+    'warning' => ['warning', MonologLevel::Warning],
+    'Critical' => ['Critical', MonologLevel::Critical],
+    'DEBUG' => ['DEBUG', MonologLevel::Debug],
+]);
+
+it('throws a structured exception for an unknown level name', function () {
+    // Act & Assert
+    app(Chronicle::class)->record('request', level: 'warn');
+})->throws(StructuredInvalidArgumentException::class, 'There is no log level named [warn]');
+
+it('maps every chronicle level to the monolog level of the same name', function () {
+    // Act & Assert
+    foreach (Level::cases() as $level) {
+        expect($level->toMonolog()->toPsrLogLevel())->toBe($level->value);
+    }
 });
 
 it('flattens fields in chronicle record and merges context under them', function () {
