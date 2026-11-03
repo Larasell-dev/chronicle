@@ -3,10 +3,6 @@
 use Larasell\Chronicle\WideEvents\Outputs\ChronicleFormatter;
 
 return [
-    /*
-     * Turns Chronicle off without removing its middleware, e.g. in tests or while a log
-     * destination is down. When false, nothing is recorded and responses get no X-Request-Id.
-     */
     'enabled' => env('CHRONICLE_ENABLED', true),
 
     /*
