@@ -68,12 +68,16 @@ class Chronicle
     public const REDACTED = '[redacted]';
 
     /**
-     * The fields add() collected for the request LogRequests is logging. Null while no request is
-     * being logged, so add() keeps nothing that no event would ever carry, e.g. in a queue worker.
+     * The fields add() collected, one entry per open scope, innermost last: the request
+     * LogRequests is logging, and every scope() running inside it. Empty outside of them, so
+     * add() keeps nothing that no event would ever carry.
      *
-     * @var array<string, mixed>|null
+     * @var list<array<string, mixed>>
      */
-    private ?array $addedFields = null;
+    private array $scopes = [];
+
+    /** The depth in $scopes of the request LogRequests is logging, or null when it logs none. */
+    private ?int $requestDepth = null;
 
     /**
      * The paths of the values redacted() hid while event() builds an event, cut like keys, for
@@ -101,25 +105,89 @@ class Chronicle
      * @param  ?Redactor  $redactor  The app's chronicle.redactor, or null for none.
      */
     public function __construct(
-        array $redactedKeys = [],
-        private readonly ?Redactor $redactor = null,
+        protected readonly array $redactedKeys = [],
+        protected readonly ?Redactor $redactor = null,
     ) {
         $this->redactedWords = array_map(self::words(...), $redactedKeys);
     }
 
     /**
-     * Adds a field to the event of the current request, and only to it: unlike Context, the field
-     * isn't added to other log lines or passed on to queued jobs. Outside a request that
-     * LogRequests logs, there is no such event, so the field is discarded. Adding a key again
-     * replaces its value.
+     * Adds a field to the event of the innermost scope: a scope() running, or else the request
+     * LogRequests is logging. Unlike Context, the field isn't added to other log lines or passed
+     * on to queued jobs. Outside any scope there is no such event, so the field is discarded.
+     * Adding a key again replaces its value.
      */
     public function add(string $key, mixed $value): void
     {
-        if ($this->addedFields === null) {
+        if ($this->scopes === []) {
             return;
         }
 
-        $this->addedFields[$key] = $value;
+        $this->scopes[array_key_last($this->scopes)][$key] = $value;
+    }
+
+    /**
+     * Runs the callback as one unit of work, e.g. an import or a command, and records one wide event
+     * of the given type when it ends: the fields add() collected while it ran, its duration_ms, and
+     * the error fields when it threw, which it then throws on. Scopes nest, and add() goes to the
+     * innermost one. Returns what the callback returns.
+     *
+     * @template TResult
+     *
+     * @param  Closure(): TResult  $callback
+     * @return TResult
+     */
+    public function scope(string $type, Closure $callback): mixed
+    {
+        $startedAtNanoseconds = hrtime(true);
+        $depth = $this->beginScope();
+
+        try {
+            $result = $callback();
+        } catch (Throwable $exception) {
+            $this->endScope($type, $depth, $startedAtNanoseconds, [], $exception);
+
+            throw $exception;
+        }
+
+        $this->endScope($type, $depth, $startedAtNanoseconds, [], null);
+
+        return $result;
+    }
+
+    /**
+     * Opens a scope for a unit of work that doesn't run in one callback. Returns its depth, for
+     * endScope().
+     *
+     * @internal
+     */
+    public function beginScope(): int
+    {
+        $this->scopes[] = [];
+
+        return count($this->scopes);
+    }
+
+    /**
+     * Closes the scope beginScope() opened at $depth and records its event: the fields add()
+     * collected in it, $measured and its duration_ms, which beat Context and add() like a request's
+     * fields, and the error fields of $exception, which make it an error event.
+     *
+     * @internal
+     *
+     * @param  array<mixed>  $measured
+     */
+    public function endScope(string $type, int $depth, int|float $startedAtNanoseconds, array $measured, ?Throwable $exception): void
+    {
+        // Closed before the error fields are built, since an exception's context() can throw too.
+        $added = $this->closeScope($type, $depth);
+        $errorFields = $exception === null ? [] : ErrorFields::for($exception);
+        $durationMs = round((hrtime(true) - $startedAtNanoseconds) / 1_000_000, 2);
+
+        $this->write(
+            $this->event($type, $errorFields, new EventDefaults(['duration_ms' => $durationMs, ...$measured]), [], $added),
+            $exception === null ? Level::Info : Level::Error,
+        );
     }
 
     /**
@@ -133,8 +201,9 @@ class Chronicle
      */
     public function beginRequest(): bool
     {
-        if ($this->addedFields === null) {
-            $this->addedFields = [];
+        if ($this->requestDepth === null) {
+            $this->scopes[] = [];
+            $this->requestDepth = count($this->scopes);
 
             return true;
         }
@@ -158,7 +227,12 @@ class Chronicle
      */
     public function endRequest(): void
     {
-        $this->addedFields = null;
+        if ($this->requestDepth === null) {
+            return;
+        }
+
+        $this->closeScope('request', $this->requestDepth);
+        $this->requestDepth = null;
     }
 
     /**
@@ -184,7 +258,8 @@ class Chronicle
 
     /**
      * Records the event of one HTTP request, for RequestLogger, with the fields add() collected.
-     * $shouldLog sees the finished event, so a sampler decides on exactly what would be written.
+     * $shouldLog sees the finished event, so a sampler decides on
+     * exactly what would be written.
      *
      * @internal
      *
@@ -199,7 +274,9 @@ class Chronicle
         Closure $shouldLog,
         array $assertionFailures = [],
     ): void {
-        $event = $this->event('request', $errorFields, $requestFields, $assertionFailures, $this->addedFields ?? []);
+        // Without LogRequests, e.g. when RequestLogger is called directly, there are no added fields.
+        $added = $this->requestDepth === null ? [] : ($this->scopes[$this->requestDepth - 1] ?? []);
+        $event = $this->event('request', $errorFields, $requestFields, $assertionFailures, $added);
 
         if ($shouldLog($event) === false) {
             return;
@@ -532,7 +609,38 @@ class Chronicle
             return;
         }
 
-        $this->channel()->log($level->value, $this->encodeEvent($event));
+        $this->output($level, $this->encodeEvent($event));
+    }
+
+    /**
+     * Hands an event's finished log line to the Chronicle channel. The one place an event leaves
+     * Chronicle, so ChronicleFake can take the line instead, built exactly as it would be written.
+     */
+    protected function output(Level $level, string $line): void
+    {
+        $this->channel()->log($level->value, $line);
+    }
+
+    /**
+     * Closes the scope opened at $depth and returns the fields add() collected in it. Scopes close
+     * in the reverse order they opened: scope() and LogRequests close theirs before they return.
+     * Scopes left open above it, which would take a bug, are closed with it, so add() can't go on
+     * filling an event that is never written.
+     *
+     * @return array<string, mixed>
+     */
+    private function closeScope(string $type, int $depth): array
+    {
+        Assert::that(
+            count($this->scopes) === $depth,
+            'chronicle.assert.scope-depth',
+            "The {$type} scope opened at depth {$depth} closes at depth ".count($this->scopes),
+        );
+
+        $added = $this->scopes[$depth - 1] ?? [];
+        $this->scopes = array_slice($this->scopes, 0, $depth - 1);
+
+        return $added;
     }
 
     /**
