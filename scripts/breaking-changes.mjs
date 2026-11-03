@@ -12,7 +12,12 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const notesDirectory = "breaking-changes";
 
-const isNote = (name) => name.endsWith(".md") && !name.startsWith("_") && name !== "AGENT.md";
+// The template starts with "_" and AGENT.md is guidance; every other Markdown file is a note.
+function isNote(name) {
+  if (name === "AGENT.md") return false;
+  if (name.startsWith("_")) return false;
+  return name.endsWith(".md");
+}
 
 function fail(message) {
   console.error(`::error::${message}`);
@@ -21,7 +26,8 @@ function fail(message) {
 
 function check() {
   const { PR_TITLE: title, BASE_SHA: base } = process.env;
-  if (!title || !base) fail("PR_TITLE and BASE_SHA must be set.");
+  if (!title) fail("PR_TITLE must be set.");
+  if (!base) fail("BASE_SHA must be set.");
 
   const added = execFileSync(
     "git",
@@ -29,18 +35,22 @@ function check() {
     { cwd: root, encoding: "utf8" },
   )
     .split("\n")
-    .filter((file) => path.dirname(file) === notesDirectory && isNote(path.basename(file)));
+    .filter((file) => path.dirname(file) === notesDirectory)
+    .filter((file) => isNote(path.basename(file)));
   const breaking = /^\w+!:/.test(title);
 
-  if (breaking && added.length === 0) {
-    fail(
-      `The title marks this pull request as breaking, but it adds no file to ${notesDirectory}/. Copy ${notesDirectory}/_template.md and describe how to upgrade.`,
-    );
-  }
-  if (!breaking && added.length > 0) {
-    fail(
-      `This pull request adds ${added.join(", ")}, but its title is not marked as breaking. Add "!" after the type, e.g. "feat!: ...", so the release bumps the minor version.`,
-    );
+  if (breaking) {
+    if (added.length === 0) {
+      fail(
+        `The title marks this pull request as breaking, but it adds no file to ${notesDirectory}/. Copy ${notesDirectory}/_template.md and describe how to upgrade.`,
+      );
+    }
+  } else {
+    if (added.length > 0) {
+      fail(
+        `This pull request adds ${added.join(", ")}, but its title is not marked as breaking. Add "!" after the type, e.g. "feat!: ...", so the release bumps the minor version.`,
+      );
+    }
   }
   for (const file of added) {
     if (!readFileSync(path.join(root, file), "utf8").startsWith("# ")) {
@@ -62,7 +72,8 @@ function toChangelog(markdown) {
     .split("\n")
     .map((line) => {
       if (/^(```|~~~)/.test(line)) fenced = !fenced;
-      return !fenced && /^#{1,3} /.test(line) ? `###${line}` : line;
+      if (fenced) return line;
+      return /^#{1,3} /.test(line) ? `###${line}` : line;
     })
     .join("\n")
     .trim();
@@ -88,7 +99,7 @@ function bundle() {
   const head = changelog.slice(0, end).trimEnd();
   const rest = changelog.slice(end);
 
-  writeFileSync(changelogPath, `${head}\n\n${guide}${rest && `\n${rest}`}`);
+  writeFileSync(changelogPath, `${head}\n\n${guide}${rest === "" ? "" : `\n${rest}`}`);
   for (const file of files) rmSync(path.join(root, notesDirectory, file));
 
   console.log(`Bundled ${files.length} breaking change(s) into CHANGELOG.md: ${files.join(", ")}`);
