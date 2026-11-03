@@ -15,6 +15,9 @@ use OpenTelemetry\SDK\Logs\LoggerProvider;
 use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
 use OpenTelemetry\SDK\Logs\Processor\SimpleLogRecordProcessor;
 
+/**
+ * @internal
+ */
 class PostHogHandler extends AbstractProcessingHandler
 {
     protected ?LoggerInterface $logger = null;

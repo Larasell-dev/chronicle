@@ -4,6 +4,9 @@ namespace Larasell\Chronicle\WideEvents\Outputs;
 
 use Monolog\Formatter\LineFormatter;
 
+/**
+ * @internal
+ */
 class ChronicleFormatter extends LineFormatter
 {
     public function __construct()

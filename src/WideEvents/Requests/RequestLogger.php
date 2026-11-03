@@ -10,6 +10,9 @@ use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
+/**
+ * @internal
+ */
 class RequestLogger
 {
     public function __construct(

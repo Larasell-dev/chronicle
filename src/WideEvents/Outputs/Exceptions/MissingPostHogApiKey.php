@@ -6,6 +6,9 @@ use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
 use LogicException;
 
+/**
+ * @internal
+ */
 final class MissingPostHogApiKey extends LogicException implements StructuredException
 {
     use HasStructuredException;
