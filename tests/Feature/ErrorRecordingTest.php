@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Context;
-use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
+use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Monolog\Level as MonologLevel;
 use RuntimeException;

@@ -15,7 +15,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Larasell\Chronicle\Chronicle;
+use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Monolog\Level;
