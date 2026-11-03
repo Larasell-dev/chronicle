@@ -14,7 +14,7 @@ use UnexpectedValueException;
  */
 final class StructuredUnexpectedValueException extends UnexpectedValueException implements StructuredException
 {
-    use HasStructuredException;
+    use HasStructuredFields;
 
     public function __construct(
         string $code,

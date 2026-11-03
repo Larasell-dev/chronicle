@@ -14,7 +14,7 @@ use Throwable;
  */
 final class StructuredOverflowException extends OverflowException implements StructuredException
 {
-    use HasStructuredException;
+    use HasStructuredFields;
 
     public function __construct(
         string $code,

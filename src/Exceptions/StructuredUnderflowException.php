@@ -14,7 +14,7 @@ use UnderflowException;
  */
 final class StructuredUnderflowException extends UnderflowException implements StructuredException
 {
-    use HasStructuredException;
+    use HasStructuredFields;
 
     public function __construct(
         string $code,

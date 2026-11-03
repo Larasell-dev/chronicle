@@ -9,7 +9,7 @@ use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
 use Throwable;
 
-class PaymentDeclined extends Exception implements StructuredException
+final class PaymentDeclined extends Exception implements StructuredException
 {
     use HasStructuredException;
 

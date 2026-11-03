@@ -8,7 +8,7 @@ use Exception;
 use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
 
-class CouldNotInviteMember extends Exception implements StructuredException
+final class CouldNotInviteMember extends Exception implements StructuredException
 {
     use HasStructuredException;
 
