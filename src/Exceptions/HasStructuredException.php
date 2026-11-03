@@ -15,7 +15,7 @@ trait HasStructuredException
     use HasStructuredFields;
 
     protected static function structured(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -24,6 +24,6 @@ trait HasStructuredException
     ): static {
         $exception = new static($message, 0, $previous);
 
-        return $exception->withError($code, $why, $fix, $link);
+        return $exception->withError($errorCode, $why, $fix, $link);
     }
 }

@@ -33,7 +33,7 @@ enum Level: string
         }
 
         return self::tryFrom(strtolower($level)) ?? throw new StructuredInvalidArgumentException(
-            code: 'chronicle.level.unknown',
+            errorCode: 'chronicle.level.unknown',
             message: "There is no log level named [{$level}]",
             why: 'Chronicle only knows the PSR-3 levels',
             fix: 'Pass a '.self::class.' case, or one of: '.implode(', ', array_column(self::cases(), 'value')),

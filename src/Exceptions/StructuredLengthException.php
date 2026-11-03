@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured LengthException to throw inline, for programming errors that need no class of their own:
- * throw new StructuredLengthException(code: 'coupons.code-too-long', message: 'Coupon codes have at most 20 characters', ...).
+ * throw new StructuredLengthException(errorCode: 'coupons.code-too-long', message: 'Coupon codes have at most 20 characters', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredLengthException extends LengthException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredLengthException extends LengthException implements Structu
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredLengthException extends LengthException implements Structu
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

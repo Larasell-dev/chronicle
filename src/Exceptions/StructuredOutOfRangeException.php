@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured OutOfRangeException to throw inline, for programming errors that need no class of their own:
- * throw new StructuredOutOfRangeException(code: 'cart.no-such-line', message: 'The cart has no line 5', ...).
+ * throw new StructuredOutOfRangeException(errorCode: 'cart.no-such-line', message: 'The cart has no line 5', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredOutOfRangeException extends OutOfRangeException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredOutOfRangeException extends OutOfRangeException implements
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredOutOfRangeException extends OutOfRangeException implements
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

@@ -96,7 +96,7 @@ class ChronicleServiceProvider extends ServiceProvider
         // can set it. Ignoring it would silently keep every request event.
         if (config('chronicle.sampling') !== null) {
             throw new StructuredLogicException(
-                code: 'chronicle.sampling.renamed',
+                errorCode: 'chronicle.sampling.renamed',
                 message: 'chronicle.sampling is now chronicle.sampler',
                 why: 'config/chronicle.php still sets sampling, which Chronicle no longer reads',
                 fix: "Rename 'sampling' to 'sampler' in config/chronicle.php",

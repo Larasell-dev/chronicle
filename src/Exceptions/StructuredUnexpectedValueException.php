@@ -9,7 +9,7 @@ use UnexpectedValueException;
 
 /**
  * The structured UnexpectedValueException to throw inline, for runtime failures that need no class of their own:
- * throw new StructuredUnexpectedValueException(code: 'payments.unknown-status', message: 'The provider returned status frozen', ...).
+ * throw new StructuredUnexpectedValueException(errorCode: 'payments.unknown-status', message: 'The provider returned status frozen', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredUnexpectedValueException extends UnexpectedValueException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredUnexpectedValueException extends UnexpectedValueException 
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredUnexpectedValueException extends UnexpectedValueException 
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

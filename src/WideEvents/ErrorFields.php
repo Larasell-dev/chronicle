@@ -57,7 +57,7 @@ final class ErrorFields
 
             if (app()->hasDebugModeEnabled()) {
                 throw new StructuredUnexpectedValueException(
-                    code: 'chronicle.error.invalid-context',
+                    errorCode: 'chronicle.error.invalid-context',
                     message: $problem,
                     why: 'Chronicle merges the context of an exception into its error event as fields, which needs an array',
                     fix: "Return an array from {$method}",

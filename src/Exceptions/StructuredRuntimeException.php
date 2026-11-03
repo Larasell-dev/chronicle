@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured RuntimeException to throw inline, for runtime failures that need no class of their own:
- * throw new StructuredRuntimeException(code: 'billing.declined', message: 'Payment failed', ...).
+ * throw new StructuredRuntimeException(errorCode: 'billing.declined', message: 'Payment failed', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredRuntimeException extends RuntimeException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredRuntimeException extends RuntimeException implements Struc
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredRuntimeException extends RuntimeException implements Struc
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

@@ -9,7 +9,7 @@ use UnderflowException;
 
 /**
  * The structured UnderflowException to throw inline, for runtime failures that need no class of their own:
- * throw new StructuredUnderflowException(code: 'jobs.queue-empty', message: 'No job is left to take', ...).
+ * throw new StructuredUnderflowException(errorCode: 'jobs.queue-empty', message: 'No job is left to take', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredUnderflowException extends UnderflowException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredUnderflowException extends UnderflowException implements S
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredUnderflowException extends UnderflowException implements S
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

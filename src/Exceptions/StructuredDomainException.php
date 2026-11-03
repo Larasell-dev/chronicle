@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured DomainException to throw inline, for programming errors that need no class of their own:
- * throw new StructuredDomainException(code: 'billing.unknown-currency', message: 'XYZ is not a currency', ...).
+ * throw new StructuredDomainException(errorCode: 'billing.unknown-currency', message: 'XYZ is not a currency', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredDomainException extends DomainException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredDomainException extends DomainException implements Structu
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredDomainException extends DomainException implements Structu
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

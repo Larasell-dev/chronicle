@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured BadMethodCallException to throw inline, for programming errors that need no class of their own:
- * throw new StructuredBadMethodCallException(code: 'orders.already-shipped', message: 'A shipped order cannot be cancelled', ...).
+ * throw new StructuredBadMethodCallException(errorCode: 'orders.already-shipped', message: 'A shipped order cannot be cancelled', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredBadMethodCallException extends BadMethodCallException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredBadMethodCallException extends BadMethodCallException impl
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredBadMethodCallException extends BadMethodCallException impl
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

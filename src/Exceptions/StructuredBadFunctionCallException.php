@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured BadFunctionCallException to throw inline, for programming errors that need no class of their own:
- * throw new StructuredBadFunctionCallException(code: 'exports.unknown-formatter', message: 'No formatter named csv', ...).
+ * throw new StructuredBadFunctionCallException(errorCode: 'exports.unknown-formatter', message: 'No formatter named csv', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredBadFunctionCallException extends BadFunctionCallException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredBadFunctionCallException extends BadFunctionCallException 
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredBadFunctionCallException extends BadFunctionCallException 
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

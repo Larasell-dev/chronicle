@@ -68,7 +68,7 @@ it('records structured exceptions thrown inline', function (string $class, strin
     // Act
     try {
         throw new $class(
-            code: 'billing.declined',
+            errorCode: 'billing.declined',
             message: 'Payment failed',
             why: 'Issuer declined the charge',
             fix: 'Try a different card',

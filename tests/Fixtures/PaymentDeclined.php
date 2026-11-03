@@ -16,7 +16,7 @@ final class PaymentDeclined extends Exception implements StructuredException
     public static function byIssuer(?Throwable $previous = null): self
     {
         return self::structured(
-            code: 'billing.declined',
+            errorCode: 'billing.declined',
             message: 'Payment failed',
             why: 'Issuer declined the charge',
             fix: 'Try a different card',
