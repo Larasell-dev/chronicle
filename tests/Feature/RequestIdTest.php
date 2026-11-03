@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestId;
+use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
+use Symfony\Component\HttpFoundation\Response;
 
 // As apps should register it: first of all global middleware.
 beforeEach(function () {
@@ -116,4 +119,16 @@ it('replaces malformed ids the client sends with its own', function (string $id)
 it('has no current id outside a request', function () {
     // Act & Assert
     expect(RequestId::current())->toBeNull();
+});
+
+it('logs no request id when the logger runs without the middleware', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(RequestLogger::class)->log(Request::create('/ping'), new Response('ok'), hrtime(true));
+
+    // Assert
+    expect(chronicleEntries($handler)[0])->toHaveKey('request.id')
+        ->and(chronicleEntries($handler)[0]['request.id'])->toBeNull();
 });

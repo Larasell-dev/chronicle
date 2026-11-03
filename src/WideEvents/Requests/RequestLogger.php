@@ -35,8 +35,9 @@ class RequestLogger
         $user = $request->user();
         $requestFields = [
             'request' => [
-                // LogRequests' id in Context replaces this one; it only shows when the logger is called directly.
-                'id' => substr(bin2hex(random_bytes(16)), 0, 16),
+                // The id LogRequests put in Context, the one source of a request's id. Null when the
+                // logger runs without LogRequests, since an id of its own would match nothing.
+                'id' => RequestId::current(),
             ],
             'method' => $request->getMethod(),
             'url' => $request->fullUrl(),
