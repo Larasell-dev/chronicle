@@ -1,10 +1,10 @@
 <?php
 
-namespace Larasell\Chronicle\Errors;
+namespace Larasell\Chronicle\Exceptions;
 
 use Throwable;
 
-trait HasStructuredError
+trait HasStructuredException
 {
     public ?string $errorCode = null;
 

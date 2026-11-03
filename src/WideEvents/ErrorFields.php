@@ -2,7 +2,7 @@
 
 namespace Larasell\Chronicle\WideEvents;
 
-use Larasell\Chronicle\Errors\StructuredError;
+use Larasell\Chronicle\Exceptions\StructuredException;
 use Throwable;
 
 /**
@@ -17,7 +17,7 @@ final class ErrorFields
      */
     public static function for(Throwable $e, array $context = []): array
     {
-        $structured = $e instanceof StructuredError;
+        $structured = $e instanceof StructuredException;
 
         return array_merge(self::exceptionContext($e), $context, [
             'error' => [

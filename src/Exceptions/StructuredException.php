@@ -1,8 +1,8 @@
 <?php
 
-namespace Larasell\Chronicle\Errors;
+namespace Larasell\Chronicle\Exceptions;
 
-interface StructuredError
+interface StructuredException
 {
     public function errorCode(): ?string;
 

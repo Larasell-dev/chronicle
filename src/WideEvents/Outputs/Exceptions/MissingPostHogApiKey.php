@@ -2,13 +2,13 @@
 
 namespace Larasell\Chronicle\WideEvents\Outputs\Exceptions;
 
-use Larasell\Chronicle\Errors\HasStructuredError;
-use Larasell\Chronicle\Errors\StructuredError;
+use Larasell\Chronicle\Exceptions\HasStructuredException;
+use Larasell\Chronicle\Exceptions\StructuredException;
 use LogicException;
 
-final class MissingPostHogApiKey extends LogicException implements StructuredError
+final class MissingPostHogApiKey extends LogicException implements StructuredException
 {
-    use HasStructuredError;
+    use HasStructuredException;
 
     public static function forPostHogChannel(): self
     {
