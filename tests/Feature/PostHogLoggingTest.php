@@ -9,6 +9,7 @@ declare(strict_types=1);
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\Logger;
+use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Support\Arr;
@@ -230,18 +231,24 @@ it('sends a batch early rather than let it pass 1 MB', function () {
         ->and(posthogBatches()[0])->toHaveCount(1);
 });
 
-it('sends the events of a queued job after the job', function () {
+it('sends the events of a queued job after the job', function (string $outcome) {
     // Arrange
     Http::fake();
 
+    $job = new SyncJob(app(), '{}', 'sync', 'default');
     Log::channel('posthog_test')->info('{"type":"job"}');
 
     // Act
-    Event::dispatch(new JobProcessed('sync', new SyncJob(app(), '{}', 'sync', 'default')));
+    Event::dispatch(match ($outcome) {
+        'processed' => new JobProcessed('sync', $job),
+        // An attempt that fails may be retried much later, so its events go out now.
+        'failed attempt' => new JobExceptionOccurred('sync', $job, new RuntimeException('boom')),
+        default => throw new UnexpectedValueException("Unknown outcome {$outcome}."),
+    });
 
     // Assert
     expect(posthogBatches())->toHaveCount(1);
-});
+})->with(['processed', 'failed attempt']);
 
 it('retries once and then drops the batch without throwing when posthog fails', function () {
     // Arrange
