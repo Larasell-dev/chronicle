@@ -25,9 +25,9 @@ trait HasStructuredFields
      * Sets the fields, once, while the exception is built: in its constructor or a static
      * factory. They are private, so code that catches the exception can only read them.
      */
-    protected function withError(string $code, ?string $why = null, ?string $fix = null, ?string $link = null): static
+    protected function withError(string $errorCode, ?string $why = null, ?string $fix = null, ?string $link = null): static
     {
-        $this->errorCode = $code;
+        $this->errorCode = $errorCode;
         $this->errorWhy = $why;
         $this->errorFix = $fix;
         $this->errorLink = $link;

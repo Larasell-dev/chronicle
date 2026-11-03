@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured InvalidArgumentException to throw inline, for programming errors that need no class of their own:
- * throw new StructuredInvalidArgumentException(code: 'teams.unknown-role', message: 'There is no role named owner2', ...).
+ * throw new StructuredInvalidArgumentException(errorCode: 'teams.unknown-role', message: 'There is no role named owner2', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredInvalidArgumentException extends InvalidArgumentException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredInvalidArgumentException extends InvalidArgumentException 
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredInvalidArgumentException extends InvalidArgumentException 
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }

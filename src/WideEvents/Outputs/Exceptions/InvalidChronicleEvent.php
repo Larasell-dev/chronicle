@@ -18,7 +18,7 @@ final class InvalidChronicleEvent extends LogicException implements StructuredEx
     public static function forPostHogChannel(string $reason): self
     {
         return self::structured(
-            code: 'chronicle.posthog.invalid-event',
+            errorCode: 'chronicle.posthog.invalid-event',
             message: 'The posthog channel received a log message that is not a JSON object: '.$reason,
             why: 'The posthog driver expects the JSON events Chronicle writes, so it cannot read this message into attributes',
             fix: 'Write to the posthog channel only through Chronicle, or point other log calls at another channel',

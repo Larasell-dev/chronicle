@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * The structured OverflowException to throw inline, for runtime failures that need no class of their own:
- * throw new StructuredOverflowException(code: 'uploads.queue-full', message: 'The upload queue is full', ...).
+ * throw new StructuredOverflowException(errorCode: 'uploads.queue-full', message: 'The upload queue is full', ...).
  * For a named exception, implement StructuredException and use HasStructuredException instead.
  */
 final class StructuredOverflowException extends OverflowException implements StructuredException
@@ -17,7 +17,7 @@ final class StructuredOverflowException extends OverflowException implements Str
     use HasStructuredFields;
 
     public function __construct(
-        string $code,
+        string $errorCode,
         string $message,
         ?string $why = null,
         ?string $fix = null,
@@ -26,6 +26,6 @@ final class StructuredOverflowException extends OverflowException implements Str
     ) {
         parent::__construct($message, 0, $previous);
 
-        $this->withError($code, $why, $fix, $link);
+        $this->withError($errorCode, $why, $fix, $link);
     }
 }
