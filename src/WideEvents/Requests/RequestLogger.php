@@ -5,8 +5,8 @@ namespace Larasell\Chronicle\WideEvents\Requests;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\ChronicleException;
 use Larasell\Chronicle\WideEvents\ErrorFields;
+use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -61,12 +61,7 @@ class RequestLogger
         $sampler = app()->make($sampler);
 
         if (! $sampler instanceof Sampler) {
-            throw ChronicleException::make(
-                code: 'chronicle.sampling.invalid-sampler',
-                message: 'chronicle.sampling must resolve to an instance of '.Sampler::class,
-                why: 'chronicle.sampling resolved to '.$sampler::class,
-                fix: 'Implement the '.Sampler::class.' contract or remove the chronicle.sampling config',
-            );
+            throw InvalidSampler::doesNotImplementSampler($sampler);
         }
 
         return $sampler->shouldLog($request, $response, $payload);
