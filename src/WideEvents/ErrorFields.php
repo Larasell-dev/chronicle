@@ -23,10 +23,14 @@ final class ErrorFields
     public static function for(Throwable $exception, array $fields = []): array
     {
         $structured = $exception instanceof StructuredException;
+        // PHP's own code, e.g. a PDOException's SQLSTATE or an HTTP status. 0 and '' are what
+        // exceptions get when nobody set one, so they log as null rather than as a code.
+        $exceptionCode = $exception->getCode();
 
         return array_merge(self::exceptionContext($exception), $fields, [
             'error' => [
                 'code' => $structured ? $exception->errorCode() : null,
+                'exception_code' => in_array($exceptionCode, [0, ''], true) ? null : $exceptionCode,
                 'message' => $exception->getMessage(),
                 'why' => $structured ? $exception->errorWhy() : null,
                 'fix' => $structured ? $exception->errorFix() : null,

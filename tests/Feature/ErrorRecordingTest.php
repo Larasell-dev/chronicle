@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Exceptions\HasStructuredFields;
 use Larasell\Chronicle\Exceptions\StructuredException;
+use Larasell\Chronicle\Exceptions\StructuredRuntimeException;
 use Larasell\Chronicle\Exceptions\StructuredUnexpectedValueException;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
@@ -114,7 +115,45 @@ it('degrades to a stable shape for plain throwables', function () {
         ->and($entry['error.message'])->toBe('boom')
         ->and($entry['error.why'])->toBeNull()
         ->and($entry['error.fix'])->toBeNull()
-        ->and($entry['error.link'])->toBeNull();
+        ->and($entry['error.link'])->toBeNull()
+        ->and($entry['error.exception_code'])->toBeNull();
+});
+
+it('logs the code php exceptions carry next to chronicle error code', function (Throwable $exception, int|string $exceptionCode) {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->recordError($exception);
+
+    // Assert
+    expect(chronicleEntries($handler)[0])->toMatchArray([
+        'error.code' => null,
+        'error.exception_code' => $exceptionCode,
+    ]);
+})->with([
+    'an int' => [new RuntimeException('Not found', 404), 404],
+    'a SQLSTATE string' => [(function (): PDOException {
+        $exception = new PDOException('SQLSTATE[23000]: Integrity constraint violation');
+        // PDO sets its string code from the driver; PHP's constructor only takes ints.
+        (new ReflectionProperty(Exception::class, 'code'))->setValue($exception, '23000');
+
+        return $exception;
+    })(), '23000'],
+]);
+
+it('keeps chronicle error code apart from php exception code', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->recordError(new StructuredRuntimeException(errorCode: 'billing.declined', message: 'Payment failed'));
+
+    // Assert
+    expect(chronicleEntries($handler)[0])->toMatchArray([
+        'error.code' => 'billing.declined',
+        'error.exception_code' => null,
+    ]);
 });
 
 it('merges exception context and lets call-site context win', function () {
