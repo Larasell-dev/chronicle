@@ -98,10 +98,11 @@ class Chronicle
 
     /**
      * Builds a wide event, so every event follows the same rules. Fields are flattened into dotted
-     * keys and merged in this order, later ones winning: the defaults, everything in Context, the
-     * fields. The defaults are an EventDefaults, not a second array, so the two can't be swapped.
-     * They are fields Chronicle measured itself, such as a request's user.id, which apps may
-     * replace through Context.
+     * keys and merged in this order, later ones winning: everything in Context, the defaults, the fields, and last the timestamp and type. The defaults are an
+     * EventDefaults, not a second array, so the two can't be swapped. They are fields Chronicle
+     * measured itself, such as a request's status, which a package's Context must not
+     * change, since every package shares them. Only a default Chronicle couldn't measure, which is
+     * null, such as the user.id of a customer signed in through another guard, can be filled in.
      *
      * Every event is bounded: see the limits at the top of this class. An event over FIELDS_MAX
      * drops fields, those of Context first, and counts them in chronicle.fields_dropped.
@@ -129,10 +130,12 @@ class Chronicle
             'type' => mb_strcut($type, 0, self::VALUE_BYTES_MAX, 'UTF-8'),
         ];
         $defaults = $this->flatten($defaults->fields ?? []);
+        $measured = array_filter($defaults, fn (mixed $value): bool => $value !== null);
         $context = $this->flatten(Context::all());
         $fields = $this->flatten($fields);
 
-        $event = array_merge($header, $defaults, $context, $fields);
+        // The header and defaults come first too, so they keep their place at the start of the event.
+        $event = array_merge($header, $defaults, $context, $measured, $fields, $header);
         $unencodable = array_filter($event, fn (mixed $value): bool => $value instanceof UnencodableValue);
 
         // Room for chronicle.unencodable, and for its _count when the reasons don't all fit.
@@ -141,7 +144,7 @@ class Chronicle
         if (count($event) + $fieldsReserved > self::FIELDS_MAX) {
             $event = $this->eventWithoutOverflow(
                 $event,
-                array_diff_key($context, $fields),
+                array_diff_key($context, $header, $defaults, $fields),
                 $fieldsReserved,
             );
             $unencodable = array_intersect_key($unencodable, $event);

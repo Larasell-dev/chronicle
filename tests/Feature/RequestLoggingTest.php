@@ -249,12 +249,15 @@ it('merges context accumulated through chronicle set into the request event', fu
         ->and($entry['cart.items'])->toBe(3);
 });
 
-it('lets accumulated context override request fields but not error fields', function () {
+it('keeps measured request fields and lets context only fill in null ones', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/override', function () {
         Context::add([
+            'type' => 'hijacked',
+            'status' => 'published',
+            'route' => 'catalog',
             'user.id' => 999,
             'error.code' => 'hijacked',
         ]);
@@ -268,9 +271,15 @@ it('lets accumulated context override request fields but not error fields', func
     // Assert
     $entry = chronicleEntries($handler)[0];
 
-    expect($entry['user.id'])->toBe(999)
+    // A guest has no user.id, so Context may fill it in; everything else Chronicle measured.
+    expect($entry['type'])->toBe('request')
+        ->and($entry['status'])->toBe(500)
+        ->and($entry['route'])->toBe('override')
+        ->and($entry['method'])->toBe('GET')
+        ->and($entry['user.id'])->toBe(999)
         ->and($entry['error.code'])->toBeNull()
-        ->and($entry['error.message'])->toBe('boom');
+        ->and($entry['error.message'])->toBe('boom')
+        ->and(array_key_first($entry))->toBe('timestamp');
 });
 
 it('collapses nested context arrays into dotted keys and json strings', function () {
