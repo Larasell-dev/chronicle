@@ -49,6 +49,9 @@ class Chronicle
      */
     private const ASSERTION_FAILED = 'chronicle.assertion_failed';
 
+    /** What a value of a key in chronicle.redact is logged as. */
+    public const REDACTED = '[redacted]';
+
     /**
      * The fields add() collected for the request LogRequests is logging. Null while no request is
      * being logged, so add() keeps nothing that no event would ever carry, e.g. in a queue worker.
@@ -56,6 +59,24 @@ class Chronicle
      * @var array<string, mixed>|null
      */
     private ?array $addedFields = null;
+
+    /**
+     * The keys of chronicle.redact as words(), so a key is matched without normalizing them again.
+     *
+     * @var list<string>
+     */
+    private readonly array $redactedWords;
+
+    /**
+     * @param  list<string>  $redactedKeys  The keys of chronicle.redact.
+     * @param  ?Redactor  $redactor  The app's chronicle.redactor, or null for none.
+     */
+    public function __construct(
+        array $redactedKeys = [],
+        private readonly ?Redactor $redactor = null,
+    ) {
+        $this->redactedWords = array_map(self::words(...), $redactedKeys);
+    }
 
     /**
      * Adds a field to the event of the current request, and only to it: unlike Context, the field
@@ -449,12 +470,14 @@ class Chronicle
         $stack = [];
 
         foreach (array_reverse($context, true) as $key => $value) {
-            $stack[] = [(string) $key, $value, 1];
+            $stack[] = [(string) $key, (string) $key, $value, 1];
         }
 
         while ($stack !== []) {
-            [$path, $value, $depth] = array_pop($stack);
+            [$path, $lastKey, $value, $depth] = array_pop($stack);
             $key = mb_strcut($path, 0, self::KEY_BYTES_MAX, 'UTF-8');
+            // Before anything else looks at the value, so a secret is never even measured.
+            $value = $this->redacted($path, $lastKey, $value);
 
             // An object is replaced by its JSON form, which the branches below then bound like
             // any other string or array.
@@ -482,6 +505,7 @@ class Chronicle
             }
 
             if ($this->encodesWhole($value, $depth)) {
+                $value = $this->redactedElements($path, $value);
                 [$json, $keptCount, $reason] = $this->encodeArray($value);
                 $flattened[$key] = $reason === null ? $json : new UnencodableValue($reason, $json);
                 Assert::that(
@@ -499,7 +523,7 @@ class Chronicle
             }
 
             foreach (array_reverse($value, true) as $childKey => $child) {
-                $stack[] = [$path.'.'.$childKey, $child, $depth + 1];
+                $stack[] = [$path.'.'.$childKey, (string) $childKey, $child, $depth + 1];
             }
         }
 
@@ -511,6 +535,102 @@ class Chronicle
         Assert::that($unbounded === null, 'chronicle.assert.value-bounds', "flatten() built {$unbounded}");
 
         return $flattened;
+    }
+
+    /**
+     * The value to log for $key: REDACTED when the key matches chronicle.redact, otherwise what
+     * the app's Redactor returns. A dotted key, e.g. stripe.secret from Context, matches when any
+     * of its parts does.
+     */
+    private function redacted(string $path, string $key, mixed $value): mixed
+    {
+        foreach (explode('.', $key) as $part) {
+            $words = self::words($part);
+
+            foreach ($this->redactedWords as $redactedWords) {
+                if (str_contains($words, $redactedWords)) {
+                    return self::REDACTED;
+                }
+            }
+        }
+
+        if ($this->redactor === null) {
+            return $value;
+        }
+
+        return $this->redactor->redact($path, $value);
+    }
+
+    /**
+     * Redacts the elements of an array flatten() stores as one JSON value, at every level
+     * json_encode will encode, so a secret in a list of arrays is caught like one in a field.
+     * Objects become their JSON form first, so their keys are checked too. Walks with an explicit
+     * stack, like flatten(), so nesting depth costs no call stack.
+     *
+     * @param  array<mixed>  $array
+     * @return array<mixed>
+     */
+    private function redactedElements(string $path, array $array): array
+    {
+        // Each array gets an id, its parent's id and its key there. Children get higher ids than
+        // their parent, so going through the ids backwards puts each finished array into its
+        // parent. The parent holds a null at the child's key until then, so keys keep their order.
+        $results = [];
+        $parents = [];
+        $keys = [];
+        $stack = [[0, $path, $array, 1]];
+        $idNext = 1;
+
+        while ($stack !== []) {
+            [$id, $nodePath, $node, $depth] = array_pop($stack);
+            $result = [];
+            $children = [];
+
+            foreach ($node as $childKey => $child) {
+                $childPath = $nodePath.'.'.$childKey;
+                $child = $this->redacted($childPath, (string) $childKey, $child);
+
+                if (is_object($child)) {
+                    [$form, $reason] = $this->jsonForm($child);
+                    // An object without a JSON form stays, for encodeElement() to report.
+                    $child = $reason === null ? $form : $child;
+                }
+
+                if (is_array($child) && $depth < self::DEPTH_MAX) {
+                    $result[$childKey] = null;
+                    $parents[$idNext] = $id;
+                    $keys[$idNext] = $childKey;
+                    $children[] = [$idNext, $childPath, $child, $depth + 1];
+                    $idNext++;
+
+                    continue;
+                }
+
+                $result[$childKey] = $child;
+            }
+
+            $results[$id] = $result;
+            // Reversed, so they pop, and are redacted, in their original order.
+            array_push($stack, ...array_reverse($children));
+        }
+
+        for ($id = $idNext - 1; $id > 0; $id--) {
+            $results[$parents[$id]][$keys[$id]] = $results[$id];
+            unset($results[$id]);
+        }
+
+        return $results[0];
+    }
+
+    /**
+     * A key as lowercase words, each between underscores, e.g. _x_csrf_token_ for X-Csrf-Token
+     * and _api_token_ for apiToken, so a redacted key matches whole words in any spelling.
+     */
+    private static function words(string $key): string
+    {
+        $snake = strtolower((string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', '_', $key));
+
+        return '_'.trim((string) preg_replace('/[^a-z0-9]+/', '_', $snake), '_').'_';
     }
 
     /**

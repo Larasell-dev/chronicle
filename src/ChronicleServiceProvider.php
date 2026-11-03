@@ -15,10 +15,12 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
+use Larasell\Chronicle\Exceptions\StructuredInvalidArgumentException;
 use Larasell\Chronicle\Exceptions\StructuredLogicException;
 use Larasell\Chronicle\Support\Assert;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
+use Larasell\Chronicle\WideEvents\Redactor;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 use Larasell\Chronicle\WideEvents\Requests\Sampler;
@@ -33,7 +35,10 @@ class ChronicleServiceProvider extends ServiceProvider
 
         $this->registerLoggingDrivers();
 
-        $this->app->singleton(Chronicle::class);
+        $this->app->singleton(
+            Chronicle::class,
+            fn (Container $app): Chronicle => new Chronicle($this->redactedKeys(), $this->redactor($app)),
+        );
         // One per process, so a failed check is reported once, not on every event.
         $this->app->singleton(Assert::class);
         $this->app->singleton(
@@ -117,6 +122,55 @@ class ChronicleServiceProvider extends ServiceProvider
         }
 
         return $sampler;
+    }
+
+    /**
+     * The keys of chronicle.redact. An entry that isn't a non-empty string would match no key, or
+     * every key, so it stops the app at boot rather than silently logging what it should hide.
+     *
+     * @return list<string>
+     */
+    protected function redactedKeys(): array
+    {
+        $keys = Config::array('chronicle.redact', []);
+
+        foreach ($keys as $key) {
+            if (is_string($key) && trim($key) !== '') {
+                continue;
+            }
+
+            throw new StructuredInvalidArgumentException(
+                errorCode: 'chronicle.redact.invalid',
+                message: 'chronicle.redact must only list keys, found '.get_debug_type($key),
+                why: 'Chronicle redacts the values of keys that contain one of the listed keys as whole words',
+                fix: 'Make every entry of redact in config/chronicle.php a non-empty string, e.g. \'password\'',
+            );
+        }
+
+        return array_values($keys);
+    }
+
+    /**
+     * The configured redactor, resolved once like the sampler. Null logs values as they are.
+     */
+    protected function redactor(Container $app): ?Redactor
+    {
+        if (config('chronicle.redactor') === null) {
+            return null;
+        }
+
+        $redactor = $app->make(Config::string('chronicle.redactor'));
+
+        if (! $redactor instanceof Redactor) {
+            throw new StructuredLogicException(
+                errorCode: 'chronicle.redactor.invalid',
+                message: 'chronicle.redactor must resolve to an instance of '.Redactor::class,
+                why: 'chronicle.redactor resolved to '.get_debug_type($redactor),
+                fix: 'Implement the '.Redactor::class.' contract or remove the chronicle.redactor config',
+            );
+        }
+
+        return $redactor;
     }
 
     protected function registerLoggingDrivers(): void
