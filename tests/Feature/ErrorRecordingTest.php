@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\Context;
-use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Errors\HasStructuredError;
 use Larasell\Chronicle\Errors\StructuredError;
@@ -9,21 +8,19 @@ use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
+use Monolog\Logger;
 use Monolog\LogRecord;
 use RuntimeException;
 
 function errorTestHandler(): TestHandler
 {
     config()->set('chronicle.enabled', true);
-    config()->set('chronicle.channel', 'chronicle_error_test');
-    config()->set('logging.channels.chronicle_error_test', [
-        'driver' => 'monolog',
-        'handler' => TestHandler::class,
+    config()->set('chronicle.default', 'test');
+    $handler = new TestHandler;
+    config()->set('chronicle.channels.test', [
+        'driver' => 'custom',
+        'via' => fn (): Logger => new Logger('test', [$handler]),
     ]);
-
-    $handler = Log::channel('chronicle_error_test')->getHandlers()[0];
-
-    expect($handler)->toBeInstanceOf(TestHandler::class);
 
     return $handler;
 }
