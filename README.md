@@ -168,10 +168,12 @@ CHRONICLE_RELEASE=3f2a9c1
 CHRONICLE_FIELDS="region=eu,team=shop"
 ```
 
-Chronicle reads them once at boot and stops the app there when one is malformed, e.g.
-`CHRONICLE_FIELDS="region"`, or when there are more than 128, its own included. They are redacted
-and bounded like any other field. Fields Chronicle measures, such as `status` or `route`, win
-over them, and so do `Context`, `add()` and the fields you pass to `record()`. The posthog channel sends them once per batch, as the OTLP resource.
+Chronicle reads them once at boot. A malformed setting, e.g. `CHRONICLE_FIELDS="region"` or more
+than 128 fields, its own included, throws in debug mode and in the local and testing environments.
+Elsewhere Chronicle ignores that setting and warns in PHP's error log, since logging must never take
+the app down. They are redacted and bounded like any other field. Fields Chronicle measures, such as
+`status` or `route`, win over them, and so do `Context`, `add()` and the fields you pass to
+`record()`. The posthog channel sends them once per batch, as the OTLP resource.
 
 ### What to log
 

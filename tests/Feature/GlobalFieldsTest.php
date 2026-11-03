@@ -18,7 +18,8 @@ use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 // How: Chronicle reads the global fields once at boot, so each test sets the config and builds
 // Chronicle again with bootChronicleWith(), as the app's booted callback does, then reads the
 // events from the test channel. Environment variables go through the real config file. The
-// malformed inputs sit on both sides of each rule, valid inputs in the other tests.
+// malformed inputs sit on both sides of each rule, valid inputs in the other tests. Tests run in
+// the testing environment, where malformed config throws; inProduction() shows it is ignored.
 
 /**
  * Sets the config and builds Chronicle again, as the app does once at boot: the booted callback
@@ -233,6 +234,32 @@ it('stops the app at boot when a global field is malformed', function (string $k
     'NAN' => ['fields', ['ratio' => NAN], 'chronicle.fields must map [ratio] to a finite number, found NAN'],
     'a key set twice' => ['fields', 'region=eu,region=us', 'CHRONICLE_FIELDS sets [region] twice'],
     'more pairs than the limit' => ['fields', implode(',', array_map(fn (int $index): string => "f{$index}=x", range(1, 129))), 'CHRONICLE_FIELDS has 129 fields, more than 128'],
+]);
+
+it('ignores a malformed setting in production and warns in php\'s error log', function (string $key, mixed $value, array $expected, string $warning) {
+    // Arrange
+    inProduction();
+    $errorLog = $this->captureErrorLog();
+    config()->set('app.name', 'Shop');
+    config()->set('app.env', 'production');
+
+    // Act
+    bootChronicleWith([
+        'chronicle.release' => 'v1',
+        'chronicle.fields' => ['region' => 'eu'],
+        "chronicle.{$key}" => $value,
+    ]);
+    $handler = chronicleTestHandler();
+    Chronicle::record('order.paid');
+
+    // Assert: the event is still written, with the other settings and a default for this one.
+    expect(Arr::only(chronicleEntries($handler)[0], array_keys($expected)))->toBe($expected)
+        ->and((string) file_get_contents($errorLog))->toContain("Chronicle ignored a malformed setting: {$warning}");
+})->with([
+    'a service that is not a string' => ['service', true, ['service.name' => 'Shop', 'service.version' => 'v1', 'region' => 'eu'], 'chronicle.service must be a string, found bool'],
+    'a host that is not a string' => ['host', 42, ['service.version' => 'v1', 'host.name' => gethostname(), 'region' => 'eu'], 'chronicle.host must be a string, found int'],
+    'a pair without a value' => ['fields', 'region', ['service.name' => 'Shop', 'service.version' => 'v1'], 'CHRONICLE_FIELDS must be key=value pairs separated by commas, found [region]'],
+    'a key chronicle sets' => ['fields', ['service.version' => 'v2'], ['service.version' => 'v1'], 'chronicle.fields sets [service.version], which Chronicle sets itself'],
 ]);
 
 it('allows exactly 128 global fields, chronicle\'s own included', function (int $appFieldCount, bool $allowed) {
