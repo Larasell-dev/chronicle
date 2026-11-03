@@ -1,6 +1,6 @@
 <?php
 
-namespace Larasell\Chronicle;
+namespace Larasell\Chronicle\Errors;
 
 use Throwable;
 

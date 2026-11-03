@@ -1,9 +1,12 @@
 <?php
 
-namespace Larasell\Chronicle;
+namespace Larasell\Chronicle\WideEvents\Requests;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
+use Larasell\Chronicle\Chronicle;
+use Larasell\Chronicle\ChronicleException;
+use Larasell\Chronicle\WideEvents\ErrorFields;
 use Monolog\Level;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -37,7 +40,7 @@ class RequestLogger
         $exception = property_exists($response, 'exception') ? $response->exception : null;
 
         if ($exception instanceof Throwable) {
-            $payload = array_merge($payload, $this->chronicle->flattenContext($this->chronicle->errorPayload($exception)));
+            $payload = array_merge($payload, $this->chronicle->flattenContext(ErrorFields::for($exception)));
         }
 
         if (! $this->shouldSample($request, $response, $payload)) {
