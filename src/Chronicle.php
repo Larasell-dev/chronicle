@@ -8,9 +8,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
-use InvalidArgumentException;
+use Larasell\Chronicle\WideEvents\Enums\Level;
 use Larasell\Chronicle\WideEvents\ErrorFields;
-use Monolog\Level;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -23,15 +22,18 @@ class Chronicle
      */
     public function record(string $type, array $fields = [], Level|string $level = Level::Info): void
     {
-        $this->write($this->event($type, $fields), $level);
+        $this->write($this->event($type, $fields), Level::resolve($level));
     }
 
     /**
-     * @param  array<mixed>  $context
+     * Records an error event for the exception. Takes its arguments in the same order as
+     * record(), so fields come second and the level last in both.
+     *
+     * @param  array<mixed>  $fields
      */
-    public function recordError(Throwable $exception, Level|string $level = Level::Error, array $context = []): void
+    public function recordError(Throwable $exception, array $fields = [], Level|string $level = Level::Error): void
     {
-        $this->record('error', ErrorFields::for($exception, $context), $level);
+        $this->record('error', ErrorFields::for($exception, $fields), $level);
     }
 
     /**
@@ -63,28 +65,16 @@ class Chronicle
      *
      * @param  array<string, mixed>  $event
      */
-    public function write(array $event, Level|string $level): void
+    public function write(array $event, Level $level): void
     {
         if (! config('chronicle.enabled', true)) {
             return;
         }
 
-        $level = $level instanceof Level ? $level : $this->levelNamed($level);
-
-        $this->channel()->{$level->getName()}(
-            (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
+        $this->channel()->log(
+            $level->value,
+            (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
         );
-    }
-
-    protected function levelNamed(string $name): Level
-    {
-        $name = strtoupper($name);
-
-        if (! in_array($name, Level::NAMES, true)) {
-            throw new InvalidArgumentException("[{$name}] is not a log level.");
-        }
-
-        return Level::fromName($name);
     }
 
     /**

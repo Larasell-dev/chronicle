@@ -9,7 +9,8 @@ use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
-use Monolog\Level;
+use Larasell\Chronicle\WideEvents\Enums\Level;
+use Monolog\Level as MonologLevel;
 use RuntimeException;
 
 it('records structured fields for exceptions implementing the contract', function () {
@@ -108,7 +109,7 @@ it('degrades to a stable shape for plain throwables', function () {
     // Assert
     $entry = chronicleEntries($handler)[0];
 
-    expect($handler->getRecords()[0]->level)->toBe(Level::Error)
+    expect($handler->getRecords()[0]->level)->toBe(MonologLevel::Error)
         ->and($entry['error.code'])->toBeNull()
         ->and($entry['error.message'])->toBe('boom')
         ->and($entry['error.why'])->toBeNull()
@@ -139,7 +140,7 @@ it('merges exception context and lets call-site context win', function () {
     $exception->errorCode = 'billing.declined';
 
     // Act
-    app(Chronicle::class)->recordError($exception, context: ['shared' => 'from-call-site']);
+    app(Chronicle::class)->recordError($exception, fields: ['shared' => 'from-call-site']);
 
     // Assert
     $entry = chronicleEntries($handler)[0];
@@ -187,10 +188,10 @@ it('accepts an explicit level in record error', function () {
     $handler = chronicleTestHandler();
 
     // Act
-    app(Chronicle::class)->recordError(new RuntimeException('boom'), Level::Critical);
+    app(Chronicle::class)->recordError(new RuntimeException('boom'), level: Level::Critical);
 
     // Assert
-    expect($handler->getRecords()[0]->level)->toBe(Level::Critical);
+    expect($handler->getRecords()[0]->level)->toBe(MonologLevel::Critical);
 });
 
 it('merges context accumulated through chronicle set into error events', function () {
@@ -237,4 +238,16 @@ it('does not record errors when chronicle is disabled', function () {
 
     // Assert
     expect($handler->getRecords())->toHaveCount(0);
+});
+
+it('takes fields before the level, like record', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->recordError(new RuntimeException('boom'), ['order.id' => 7], Level::Warning);
+
+    // Assert
+    expect($handler->getRecords()[0]->level)->toBe(MonologLevel::Warning)
+        ->and(chronicleEntries($handler)[0]['order.id'])->toBe(7);
 });
