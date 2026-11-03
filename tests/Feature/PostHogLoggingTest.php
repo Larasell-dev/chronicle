@@ -283,19 +283,26 @@ it('throws in debug mode when the posthog channel is enabled without an api key'
     app(Chronicle::class)->record('request');
 })->throws(MissingPostHogApiKey::class, 'POSTHOG_API_KEY is required');
 
-it('does not throw outside debug mode when the api key is missing', function () {
+it('warns once and reports the dropped events outside debug mode when the api key is missing', function () {
     // Arrange
     Http::fake();
+    $errorLog = $this->captureErrorLog();
 
     config()->set('app.debug', false);
     config()->set('chronicle.default', 'posthog_without_key');
 
     // Act
     app(Chronicle::class)->record('request');
+    app(Chronicle::class)->record('request');
+    app(Chronicle::class)->record('request');
     app()->terminate();
 
     // Assert
+    $log = (string) file_get_contents($errorLog);
+
     Http::assertNothingSent();
+    expect(substr_count($log, "Chronicle's posthog channel has no POSTHOG_API_KEY; its events are dropped."))->toBe(1)
+        ->and($log)->toContain('Chronicle dropped 3 events for PostHog: no API key');
 });
 
 it('writes only to the log file by default', function () {
