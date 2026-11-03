@@ -6,42 +6,18 @@ use Larasell\Chronicle\Exceptions\HasStructuredException;
 use Larasell\Chronicle\Exceptions\StructuredException;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
-use Monolog\Handler\TestHandler;
 use Monolog\Level;
-use Monolog\Logger;
-use Monolog\LogRecord;
 use RuntimeException;
 
-function errorTestHandler(): TestHandler
-{
-    config()->set('chronicle.enabled', true);
-    config()->set('chronicle.default', 'test');
-    $handler = new TestHandler;
-    config()->set('chronicle.channels.test', [
-        'driver' => 'custom',
-        'via' => fn (): Logger => new Logger('test', [$handler]),
-    ]);
-
-    return $handler;
-}
-
-function errorEntries(TestHandler $handler): array
-{
-    return array_map(
-        fn (LogRecord $record) => json_decode($record->message, true),
-        $handler->getRecords(),
-    );
-}
-
 it('records structured fields for exceptions implementing the contract', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     $previous = new RuntimeException('network down');
     $e = PaymentDeclined::byIssuer($previous);
 
     app(Chronicle::class)->recordError($e);
 
-    $entry = errorEntries($handler)[0];
+    $entry = chronicleEntries($handler)[0];
 
     expect($e->getPrevious())->toBe($previous)
         ->and($e->errorCode())->toBe('billing.declined')
@@ -54,11 +30,11 @@ it('records structured fields for exceptions implementing the contract', functio
 });
 
 it('records domain exceptions built through the structured error constructor', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     app(Chronicle::class)->recordError(CouldNotInviteMember::emailAlreadyInvited('nils@example.com', 'acme'));
 
-    $entry = errorEntries($handler)[0];
+    $entry = chronicleEntries($handler)[0];
 
     expect($entry['error.code'])->toBe('teams.could-not-invite-member.email-already-invited')
         ->and($entry['error.message'])->toBe('Could not invite nils@example.com to team acme: they already have a pending invitation.')
@@ -67,7 +43,7 @@ it('records domain exceptions built through the structured error constructor', f
 });
 
 it('records structured exceptions thrown inline', function (string $class, string $base) {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
     $previous = new RuntimeException('network down');
 
     try {
@@ -83,7 +59,7 @@ it('records structured exceptions thrown inline', function (string $class, strin
         app(Chronicle::class)->recordError($e);
     }
 
-    $entry = errorEntries($handler)[0];
+    $entry = chronicleEntries($handler)[0];
 
     expect($e)->toBeInstanceOf($base)
         ->and($e->getPrevious())->toBe($previous)
@@ -103,11 +79,11 @@ it('records structured exceptions thrown inline', function (string $class, strin
 ));
 
 it('degrades to a stable shape for plain throwables', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
-    $entry = errorEntries($handler)[0];
+    $entry = chronicleEntries($handler)[0];
 
     expect($handler->getRecords()[0]->level)->toBe(Level::Error)
         ->and($entry['error.code'])->toBeNull()
@@ -118,7 +94,7 @@ it('degrades to a stable shape for plain throwables', function () {
 });
 
 it('merges exception context and lets call-site context win', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     $e = new class('Payment failed') extends RuntimeException implements StructuredException
     {
@@ -137,7 +113,7 @@ it('merges exception context and lets call-site context win', function () {
 
     app(Chronicle::class)->recordError($e, context: ['shared' => 'from-call-site']);
 
-    $entry = errorEntries($handler)[0];
+    $entry = chronicleEntries($handler)[0];
 
     expect($entry['correlation_id'])->toBe('pay_123')
         ->and($entry['shared'])->toBe('from-call-site')
@@ -145,15 +121,15 @@ it('merges exception context and lets call-site context win', function () {
 });
 
 it('does not merge context from exceptions without a context method', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
-    expect(errorEntries($handler)[0])->not->toHaveKeys(['correlation_id']);
+    expect(chronicleEntries($handler)[0])->not->toHaveKeys(['correlation_id']);
 });
 
 it('truncates long context values', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     $e = new class('boom') extends RuntimeException
     {
@@ -165,11 +141,11 @@ it('truncates long context values', function () {
 
     app(Chronicle::class)->recordError($e);
 
-    expect(strlen(errorEntries($handler)[0]['raw']))->toBe(1000);
+    expect(strlen(chronicleEntries($handler)[0]['raw']))->toBe(1000);
 });
 
 it('accepts an explicit level in record error', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     app(Chronicle::class)->recordError(new RuntimeException('boom'), Level::Critical);
 
@@ -177,13 +153,13 @@ it('accepts an explicit level in record error', function () {
 });
 
 it('merges context accumulated through chronicle set into error events', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     Context::add(['job.id' => 123, 'queue' => 'default']);
 
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
-    $entry = errorEntries($handler)[0];
+    $entry = chronicleEntries($handler)[0];
 
     expect($entry['job.id'])->toBe(123)
         ->and($entry['queue'])->toBe('default')
@@ -191,13 +167,13 @@ it('merges context accumulated through chronicle set into error events', functio
 });
 
 it('collapses nested context arrays into dotted keys on error events', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
 
     Context::add(['job' => ['id' => 123, 'tags' => ['a', 'b']]]);
 
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
 
-    $entry = errorEntries($handler)[0];
+    $entry = chronicleEntries($handler)[0];
 
     expect($entry['job.id'])->toBe(123)
         ->and($entry['job.tags'])->toBe('["a","b"]')
@@ -205,7 +181,7 @@ it('collapses nested context arrays into dotted keys on error events', function 
 });
 
 it('does not record errors when chronicle is disabled', function () {
-    $handler = errorTestHandler();
+    $handler = chronicleTestHandler();
     config()->set('chronicle.enabled', false);
 
     app(Chronicle::class)->recordError(new RuntimeException('boom'));
