@@ -58,6 +58,12 @@ class PostHogHandler extends AbstractProcessingHandler
 
     private int $batchBytes = 0;
 
+    /** The handler lives as long as the process, so this warns about a missing key once per process. */
+    private bool $missingApiKeyWarned = false;
+
+    /** Events dropped for a missing API key since the last flush(), which reports them. */
+    private int $droppedWithoutApiKeyCount = 0;
+
     public function __construct(
         protected string $host,
         protected string $apiKey,
@@ -76,10 +82,18 @@ class PostHogHandler extends AbstractProcessingHandler
     {
         if ($this->apiKey === '') {
             // Without a key every event is dropped. Fail loudly in debug mode, so a developer
-            // notices, but never take production down over a missing log destination.
+            // notices, but never take production down over a missing log destination. There,
+            // warn once, not on every event, and flush() reports how many were dropped.
             if ($this->debug) {
                 throw MissingPostHogApiKey::forPostHogChannel();
             }
+
+            if ($this->missingApiKeyWarned === false) {
+                error_log("Chronicle's posthog channel has no POSTHOG_API_KEY; its events are dropped. Set the key or remove posthog from CHRONICLE_CHANNEL.");
+                $this->missingApiKeyWarned = true;
+            }
+
+            $this->droppedWithoutApiKeyCount++;
 
             return;
         }
@@ -105,6 +119,11 @@ class PostHogHandler extends AbstractProcessingHandler
      */
     public function flush(): void
     {
+        if ($this->droppedWithoutApiKeyCount > 0) {
+            $this->reportDropped($this->droppedWithoutApiKeyCount, 'no API key');
+            $this->droppedWithoutApiKeyCount = 0;
+        }
+
         if ($this->batch === []) {
             return;
         }
