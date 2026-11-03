@@ -77,4 +77,31 @@ return [
      * Whether request events log the client's ip. When off, ip is null.
      */
     'log_ip' => env('CHRONICLE_LOG_IP', true),
+
+    /*
+     * The global fields of every event, read once at boot and named as
+     * OpenTelemetry's resource attributes. The posthog channel sends them
+     * as the resource of each batch. Every event also gets
+     * process.runtime.version, PHP's version.
+     *
+     * service:     service.name. Null uses app.name.
+     * release:     service.version, e.g. the commit or tag your deploy sets.
+     *              Null leaves it out.
+     * environment: deployment.environment. Null uses app.env.
+     * host:        host.name. Null uses gethostname(); an empty string, as
+     *              in CHRONICLE_HOST=, leaves it out.
+     */
+    'service' => env('CHRONICLE_SERVICE'),
+    'release' => env('CHRONICLE_RELEASE'),
+    'environment' => env('CHRONICLE_ENVIRONMENT'),
+    'host' => env('CHRONICLE_HOST'),
+
+    /*
+     * Any other global fields, e.g. ['region' => 'eu'], with values that are
+     * strings, numbers or bools. Instead of an array, this takes a string
+     * in OpenTelemetry's format, as CHRONICLE_FIELDS="region=eu,team=shop"
+     * sets it, with values percent-encoded where they hold a comma. At most
+     * 128 global fields, Chronicle's own included.
+     */
+    'fields' => env('CHRONICLE_FIELDS', []),
 ];

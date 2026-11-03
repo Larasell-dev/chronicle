@@ -49,6 +49,11 @@ return [
     'redactor' => null,
     'log_jobs' => env('CHRONICLE_LOG_JOBS', false),
     'log_ip' => env('CHRONICLE_LOG_IP', true),
+    'service' => env('CHRONICLE_SERVICE'),
+    'release' => env('CHRONICLE_RELEASE'),
+    'environment' => env('CHRONICLE_ENVIRONMENT'),
+    'host' => env('CHRONICLE_HOST'),
+    'fields' => env('CHRONICLE_FIELDS', []),
 ];
 ```
 
@@ -140,6 +145,33 @@ final class PaymentDeclined extends Exception implements StructuredException
 
 Set `CHRONICLE_LOG_JOBS=true` to record one `job` event for every attempt of a queued job, with
 the fields `add()` collects while it runs.
+
+### Tell services, releases and hosts apart
+
+Every event carries a few global fields, named as OpenTelemetry's resource attributes, so you can
+filter events from several apps, deploys or machines:
+
+| Field | Set by | Default |
+| --- | --- | --- |
+| `service.name` | `CHRONICLE_SERVICE` | `app.name` (`APP_NAME`) |
+| `service.version` | `CHRONICLE_RELEASE` | none |
+| `deployment.environment` | `CHRONICLE_ENVIRONMENT` | `app.env` (`APP_ENV`) |
+| `host.name` | `CHRONICLE_HOST` | `gethostname()`; an empty `CHRONICLE_HOST=` leaves it out |
+| `process.runtime.version` | | `PHP_VERSION` |
+
+Set the release in your deploy, e.g. to the commit or tag, and add any other fields of your own
+in OpenTelemetry's `key=value,key=value` format, or as an array in `fields` of
+`config/chronicle.php`:
+
+```dotenv
+CHRONICLE_RELEASE=3f2a9c1
+CHRONICLE_FIELDS="region=eu,team=shop"
+```
+
+Chronicle reads them once at boot and stops the app there when one is malformed, e.g.
+`CHRONICLE_FIELDS="region"`, or when there are more than 128, its own included. They are redacted
+and bounded like any other field. Fields Chronicle measures, such as `status` or `route`, win
+over them, and so do `Context`, `add()` and the fields you pass to `record()`. The posthog channel sends them once per batch, as the OTLP resource.
 
 ### Redact secrets
 

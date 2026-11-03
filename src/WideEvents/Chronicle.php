@@ -64,6 +64,13 @@ class Chronicle
      */
     private const ASSERTION_FAILED = 'chronicle.assertion_failed';
 
+    /**
+     * The most global fields an app has, Chronicle's own included. Every event carries them, and
+     * an event over FIELDS_MAX drops them only after Context's, so each one takes room from the
+     * fields that describe the event: 128 leaves half of FIELDS_MAX for those.
+     */
+    public const GLOBAL_FIELDS_MAX = 128;
+
     /** What a value of a key in chronicle.redact is logged as. */
     public const REDACTED = '[redacted]';
 
@@ -103,12 +110,28 @@ class Chronicle
     /**
      * @param  list<string>  $redactedKeys  The keys of chronicle.redact.
      * @param  ?Redactor  $redactor  The app's chronicle.redactor, or null for none.
+     * @param  array<mixed>  $globalFields  The fields of every event, e.g. service.name, which
+     *                                      ChronicleServiceProvider read and validated at boot.
      */
     public function __construct(
         protected readonly array $redactedKeys = [],
         protected readonly ?Redactor $redactor = null,
+        protected readonly array $globalFields = [],
     ) {
         $this->redactedWords = array_map(self::words(...), $redactedKeys);
+
+        // The other side of ChronicleServiceProvider::globalFields(), which rejects config that
+        // breaks these, so a failure here is a bug in Chronicle, not in the app's config.
+        Assert::that(
+            count($globalFields) <= self::GLOBAL_FIELDS_MAX,
+            'chronicle.assert.global-fields',
+            'Chronicle got '.count($globalFields).' global fields, more than GLOBAL_FIELDS_MAX ('.self::GLOBAL_FIELDS_MAX.')',
+        );
+
+        foreach ($globalFields as $key => $value) {
+            Assert::that(is_string($key), 'chronicle.assert.global-fields', "Chronicle got the global field key [{$key}], which is not a string");
+            Assert::that(is_scalar($value), 'chronicle.assert.global-fields', "Chronicle got a global field [{$key}] that is ".get_debug_type($value).', not a scalar');
+        }
     }
 
     /**
@@ -236,6 +259,43 @@ class Chronicle
     }
 
     /**
+     * The global fields as every event has them, redacted and bounded, for an output that sends
+     * them once rather than on every event, such as PostHog's OTLP resource.
+     *
+     * @internal
+     *
+     * @return array<string, scalar|null>
+     */
+    public function loggedGlobalFields(): array
+    {
+        $fields = [];
+
+        foreach ($this->flatten($this->globalFields) as $key => $value) {
+            $value = $value instanceof UnencodableValue ? $value->replacement : $value;
+
+            if ($value === null) {
+                $fields[$key] = null;
+
+                continue;
+            }
+
+            if (is_scalar($value)) {
+                $fields[$key] = $value;
+
+                continue;
+            }
+
+            // flatten() promises plain values. Outside debug mode a broken one is left out.
+            Assert::that(false, 'chronicle.assert.value-bounds', "loggedGlobalFields() got {$key} as ".get_debug_type($value));
+        }
+
+        // event() has no use for them: it takes the paths of the fields it flattens itself.
+        $this->takeRedactedPaths();
+
+        return $fields;
+    }
+
+    /**
      * Records a wide event of the given type. The fields you pass win over fields in Context.
      *
      * @param  array<mixed>  $fields
@@ -287,8 +347,9 @@ class Chronicle
 
     /**
      * Builds a wide event, so every event follows the same rules. Fields are flattened into dotted
-     * keys and merged in this order, later ones winning: everything in Context, the fields add()
-     * collected, the defaults, the fields, and last the timestamp and type. The defaults are an
+     * keys and merged in this order, later ones winning: the global fields of every event, such as
+     * service.name, everything in Context, the fields add() collected, the defaults, the fields,
+     * and last the timestamp and type. The defaults are an
      * EventDefaults, not a second array, so the two can't be swapped. They are fields Chronicle
      * measured itself, such as a request's status, which a package's Context or add() must not
      * change, since every package shares them. Only a default Chronicle couldn't measure, which is
@@ -329,13 +390,15 @@ class Chronicle
         $this->takeRedactedPaths();
         $defaults = $this->flatten($defaults->fields ?? []);
         $measured = array_filter($defaults, fn (mixed $value): bool => $value !== null);
+        // Flattened on every event, so redaction and the limits apply to them like to any field.
+        $global = $this->flatten($this->globalFields);
         // Added after Context, so a field meant for this event wins over one meant for every line.
         $context = array_merge($this->flatten(Context::all()), $this->flatten($added));
         $fields = $this->flatten($fields);
         $redacted = $this->takeRedactedPaths();
 
         // The header and defaults come first too, so they keep their place at the start of the event.
-        $event = array_merge($header, $defaults, $context, $measured, $fields, $header);
+        $event = array_merge($header, $defaults, $global, $context, $measured, $fields, $header);
         $unencodable = array_filter($event, fn (mixed $value): bool => $value instanceof UnencodableValue);
 
         // Room for chronicle.unencodable and chronicle.redacted, and for the _count of each

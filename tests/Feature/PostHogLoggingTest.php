@@ -26,6 +26,8 @@ use Monolog\Level;
 // fakes that itself instead of adding to a shared success stub.
 beforeEach(function () {
     config()->set('app.name', 'Shop');
+    // Chronicle reads service.name from app.name once at boot, so it is built again with Shop.
+    app()->forgetInstance(Chronicle::class);
     config()->set('logging.channels.posthog_test', [
         'driver' => 'posthog',
         'api_key' => 'phc_test',
@@ -137,8 +139,8 @@ it('sends chronicle events as otlp json log records', function () {
     $payload = posthogPayloads()[0];
     $record = posthogBatches()[0][0];
 
-    expect(Arr::get($payload, 'resourceLogs.0.resource.attributes'))
-        ->toBe([['key' => 'service.name', 'value' => ['stringValue' => 'Shop']]])
+    expect(Arr::get($payload, 'resourceLogs.0.resource.attributes.0'))
+        ->toBe(['key' => 'service.name', 'value' => ['stringValue' => 'Shop']])
         ->and(Arr::get($payload, 'resourceLogs.0.scopeLogs.0.scope.name'))->toBe('chronicle')
         ->and($record['body'])->toBe(['stringValue' => 'request'])
         ->and($record['severityNumber'])->toBe(9)
