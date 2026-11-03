@@ -3,6 +3,7 @@
 namespace Larasell\Chronicle\Tests;
 
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Http;
 use Larasell\Chronicle\ChronicleServiceProvider;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
@@ -28,6 +29,9 @@ abstract class TestCase extends TestbenchTestCase
      */
     protected function defineEnvironment($app): void
     {
+        // No test may reach a real server, PostHog included.
+        Http::preventStrayRequests();
+
         // A log file of the test's own, never the one in storage/: that one outlives the test,
         // and every run and process shares it, so a test could read lines another one wrote.
         $logPath = sys_get_temp_dir().'/chronicle-test-'.bin2hex(random_bytes(8)).'.log';
@@ -47,6 +51,24 @@ abstract class TestCase extends TestbenchTestCase
             'driver' => 'custom',
             'via' => fn (): Logger => new Logger('app_test', [$app->make(TestHandler::class)]),
         ]);
+    }
+
+    /**
+     * Sends PHP's error log, where Chronicle reports what it couldn't deliver, to a file of this
+     * test's own, and returns its path. error_log is a setting of the whole process, so it is set
+     * back, and the file deleted, when the test ends.
+     */
+    public function captureErrorLog(): string
+    {
+        $path = sys_get_temp_dir().'/chronicle-error-'.bin2hex(random_bytes(8)).'.log';
+        $previous = ini_set('error_log', $path);
+
+        $this->beforeApplicationDestroyed(function () use ($path, $previous): void {
+            ini_set('error_log', $previous === false ? '' : $previous);
+            $this->deleteIfExists($path);
+        });
+
+        return $path;
     }
 
     private function deleteIfExists(string $path): void

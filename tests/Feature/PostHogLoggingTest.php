@@ -1,161 +1,253 @@
 <?php
 
+// How: every test sends through a real posthog channel and Laravel's faked HTTP client, then
+// reads the OTLP JSON requests the fake recorded. TestCase prevents stray requests, so nothing
+// here reaches PostHog.
+
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Request;
+use Illuminate\Log\Logger;
+use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Queue\Jobs\SyncJob;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Monolog\Level;
-use OpenTelemetry\API\Logs\LoggerInterface;
-use OpenTelemetry\API\Logs\LogRecord;
-use OpenTelemetry\API\Logs\LogRecordBuilderInterface;
-use OpenTelemetry\API\Logs\Severity;
-use OpenTelemetry\Context\ContextInterface;
-use OpenTelemetry\SDK\Common\InstrumentationScope\Configurator;
-use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
-use RuntimeException;
 
-function posthogTestProvider(array &$emitted): LoggerProviderInterface
-{
-    $otelLogger = new class($emitted) implements LoggerInterface
-    {
-        public function __construct(public array &$emitted) {}
-
-        public function emit(LogRecord $record): void
-        {
-            $this->emitted[] = $record;
-        }
-
-        public function logRecordBuilder(): LogRecordBuilderInterface
-        {
-            throw new RuntimeException('not needed');
-        }
-
-        public function isEnabled(?ContextInterface $context = null, ?int $severityNumber = null, ?string $eventName = null): bool
-        {
-            return true;
-        }
-    };
-
-    return new class($otelLogger) implements LoggerProviderInterface
-    {
-        public function __construct(protected LoggerInterface $logger) {}
-
-        public function getLogger(string $name, ?string $version = null, ?string $schemaUrl = null, ?iterable $attributes = []): LoggerInterface
-        {
-            return $this->logger;
-        }
-
-        public function shutdown(): bool
-        {
-            return true;
-        }
-
-        public function forceFlush(): bool
-        {
-            return true;
-        }
-
-        public function updateConfigurator(?Configurator $configurator): void {}
-    };
-}
-
-function posthogSeverityForLevel(string|int|Level $level): int
-{
-    $emitted = [];
-
-    app()->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
-
-    config()->set('logging.channels.chronicle', [
+// Laravel matches fake stubs in the order they were added, so a test that needs PostHog to fail
+// fakes that itself instead of adding to a shared success stub.
+beforeEach(function () {
+    config()->set('app.name', 'Shop');
+    config()->set('logging.channels.posthog_test', [
         'driver' => 'posthog',
         'api_key' => 'phc_test',
-        'host' => 'https://us.i.posthog.com',
+        'host' => 'https://eu.i.posthog.com/',
+        'level' => 'debug',
     ]);
+});
 
-    $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
+/**
+ * The decoded body of every request sent to PostHog, in order.
+ *
+ * @return list<array<mixed>>
+ */
+function posthogPayloads(): array
+{
+    $payloads = [];
 
-    Log::channel('chronicle')->log($level->getName(), json_encode(['type' => 'request']));
+    foreach (Http::recorded() as $pair) {
+        $request = is_array($pair) ? ($pair[0] ?? null) : null;
 
-    $record = $emitted[0];
-    $props = fn (string $name): mixed => (fn () => $this->{$name})->call($record);
+        if (! $request instanceof Request) {
+            throw new UnexpectedValueException('Laravel recorded something other than a request.');
+        }
 
-    return $props('severityNumber');
+        $payloads[] = chronicleEntry($request->body());
+    }
+
+    return $payloads;
 }
 
-it('emits chronicle entries as otel log records', function () {
-    $emitted = [];
+/**
+ * The log records of every request sent to PostHog, in order.
+ *
+ * @return list<list<array<mixed>>>
+ */
+function posthogBatches(): array
+{
+    return array_map(function (array $payload): array {
+        $records = [];
 
-    $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
+        foreach (Arr::array($payload, 'resourceLogs.0.scopeLogs.0.logRecords') as $record) {
+            $records[] = is_array($record) ? $record : throw new UnexpectedValueException('A log record must be an object.');
+        }
 
-    config()->set('logging.channels.chronicle', [
-        'driver' => 'posthog',
-        'api_key' => 'phc_test',
-        'host' => 'https://us.i.posthog.com',
-    ]);
+        return $records;
+    }, posthogPayloads());
+}
 
-    Log::channel('chronicle')->info(json_encode([
+/**
+ * A log record's attributes as a key => OTLP value map.
+ *
+ * @param  array<mixed>  $record
+ * @return array<string, mixed>
+ */
+function posthogAttributes(array $record): array
+{
+    $attributes = [];
+
+    foreach (Arr::array($record, 'attributes') as $attribute) {
+        if (! is_array($attribute)) {
+            throw new UnexpectedValueException('An attribute must be an object.');
+        }
+
+        $attributes[Arr::string($attribute, 'key')] = Arr::array($attribute, 'value');
+    }
+
+    return $attributes;
+}
+
+function posthogTestHandler(): PostHogHandler
+{
+    $logger = Log::channel('posthog_test');
+    $monolog = $logger instanceof Logger ? $logger->getLogger() : null;
+    $handler = $monolog instanceof Monolog\Logger ? ($monolog->getHandlers()[0] ?? null) : null;
+
+    if (! $handler instanceof PostHogHandler) {
+        throw new UnexpectedValueException('The posthog_test channel must use the PostHogHandler.');
+    }
+
+    return $handler;
+}
+
+it('sends chronicle events as otlp json log records', function () {
+    Http::fake();
+
+    Log::channel('posthog_test')->info(json_encode([
         'timestamp' => '2026-10-07T20:00:00+00:00',
         'type' => 'request',
         'method' => 'GET',
         'status' => 200,
+        'duration_ms' => 1.5,
+        'cached' => false,
         'user.id' => 42,
-    ]));
+        'session.id' => 'sess_abc',
+        'route' => null,
+    ], JSON_THROW_ON_ERROR));
 
-    expect($emitted)->toHaveCount(1);
+    app()->terminate();
 
-    $record = $emitted[0];
-    $props = fn (string $name): mixed => (fn () => $this->{$name})->call($record);
+    // One request, so the three checks below are all about it.
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://eu.i.posthog.com/i/v1/logs');
+    Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer phc_test'));
+    Http::assertSent(fn (Request $request): bool => $request->hasHeader('Content-Type', 'application/json'));
 
-    expect($props('body'))->toBe('request')
-        ->and($props('severityNumber'))->toBe(Severity::INFO->value)
-        ->and($props('attributes'))->toMatchArray([
-            'method' => 'GET',
-            'status' => 200,
-            'posthogDistinctId' => '42',
+    $payload = posthogPayloads()[0];
+    $record = posthogBatches()[0][0];
+
+    expect(Arr::get($payload, 'resourceLogs.0.resource.attributes'))
+        ->toBe([['key' => 'service.name', 'value' => ['stringValue' => 'Shop']]])
+        ->and(Arr::get($payload, 'resourceLogs.0.scopeLogs.0.scope.name'))->toBe('chronicle')
+        ->and($record['body'])->toBe(['stringValue' => 'request'])
+        ->and($record['severityNumber'])->toBe(9)
+        ->and($record['severityText'])->toBe('INFO')
+        ->and($record['timeUnixNano'])->toBeString()->toMatch('/^\d{19}$/')
+        ->and(posthogAttributes($record))->toBe([
+            'method' => ['stringValue' => 'GET'],
+            'status' => ['intValue' => '200'],
+            'duration_ms' => ['doubleValue' => 1.5],
+            'cached' => ['boolValue' => false],
+            'user.id' => ['intValue' => '42'],
+            'session.id' => ['stringValue' => 'sess_abc'],
+            'posthogDistinctId' => ['stringValue' => '42'],
+            'sessionId' => ['stringValue' => 'sess_abc'],
         ]);
 });
 
-it('maps monolog levels to otel severities', function (string|int|Level $level, int $expected) {
-    expect(posthogSeverityForLevel($level))->toBe($expected);
+it('maps monolog levels to otlp severities', function (Level $level, int $number, string $text) {
+    Http::fake();
+
+    Log::channel('posthog_test')->log($level->getName(), '{"type":"request"}');
+    posthogTestHandler()->flush();
+
+    expect(posthogBatches()[0][0]['severityNumber'])->toBe($number)
+        ->and(posthogBatches()[0][0]['severityText'])->toBe($text);
 })->with([
-    ['info', Severity::INFO->value],
-    ['warning', Severity::WARN->value],
-    ['error', Severity::ERROR->value],
-    [Level::Warning, Severity::WARN->value],
-    [Level::Error, Severity::ERROR->value],
+    [Level::Debug, 5, 'DEBUG'],
+    [Level::Info, 9, 'INFO'],
+    [Level::Notice, 9, 'INFO'],
+    [Level::Warning, 13, 'WARN'],
+    [Level::Error, 17, 'ERROR'],
+    [Level::Critical, 21, 'FATAL'],
+    [Level::Alert, 21, 'FATAL'],
+    [Level::Emergency, 21, 'FATAL'],
 ]);
 
-it('maps entry fields to otel attributes', function () {
-    $handler = new class('https://us.i.posthog.com', 'phc_test') extends PostHogHandler
-    {
-        /**
-         * @return array<string, scalar>
-         */
-        public function exposedAttributes(array $entry): array
-        {
-            return $this->attributes($entry);
-        }
-    };
+it('sends a request\'s events in one batch once the app terminates', function () {
+    Http::fake();
 
-    $attributes = $handler->exposedAttributes([
-        'timestamp' => 'now',
-        'type' => 'request',
-        'method' => 'GET',
-        'status' => 200,
-        'duration_ms' => 1.5,
-        'user.id' => 42,
-        'session.id' => 'sess_abc',
-    ]);
+    foreach (['one', 'two', 'three'] as $type) {
+        Log::channel('posthog_test')->info(json_encode(['type' => $type], JSON_THROW_ON_ERROR));
+    }
 
-    expect($attributes)->toMatchArray([
-        'method' => 'GET',
-        'status' => 200,
-        'duration_ms' => 1.5,
-        'posthogDistinctId' => '42',
-        'sessionId' => 'sess_abc',
-    ])->not->toHaveKeys(['timestamp', 'type']);
+    expect(Http::recorded())->toHaveCount(0);
+
+    app()->terminate();
+
+    expect(array_map(fn (array $record): mixed => $record['body'], posthogBatches()[0]))
+        ->toBe([['stringValue' => 'one'], ['stringValue' => 'two'], ['stringValue' => 'three']]);
+});
+
+it('sends a batch early once it holds 100 events', function () {
+    Http::fake();
+
+    foreach (range(1, 101) as $index) {
+        Log::channel('posthog_test')->info('{"type":"tick"}');
+    }
+
+    // The 100th event fills the batch; the 101st waits for the next one.
+    expect(posthogBatches())->toHaveCount(1)
+        ->and(posthogBatches()[0])->toHaveCount(100);
+
+    posthogTestHandler()->flush();
+
+    expect(posthogBatches()[1])->toHaveCount(1);
+});
+
+it('sends a batch early rather than let it pass 1 MB', function () {
+    Http::fake();
+
+    $event = json_encode(['type' => 'big', 'body' => str_repeat('x', 600_000)], JSON_THROW_ON_ERROR);
+
+    Log::channel('posthog_test')->info($event);
+    Log::channel('posthog_test')->info($event);
+
+    // Two 600 KB events can't share a batch, so the first one went before the second was added.
+    expect(posthogBatches())->toHaveCount(1)
+        ->and(posthogBatches()[0])->toHaveCount(1);
+});
+
+it('sends the events of a queued job after the job', function () {
+    Http::fake();
+
+    Log::channel('posthog_test')->info('{"type":"job"}');
+
+    Event::dispatch(new JobProcessed('sync', new SyncJob(app(), '{}', 'sync', 'default')));
+
+    expect(posthogBatches())->toHaveCount(1);
+});
+
+it('retries once and then drops the batch without throwing when posthog fails', function () {
+    Http::fake(['*' => Http::response([], 503)]);
+    $errorLog = $this->captureErrorLog();
+
+    Log::channel('posthog_test')->info('{"type":"request"}');
+    app()->terminate();
+    posthogTestHandler()->flush();
+
+    expect(Http::recorded())->toHaveCount(2)
+        ->and((string) file_get_contents($errorLog))->toContain('Chronicle dropped 1 events for PostHog: PostHog answered HTTP 503');
+});
+
+it('drops the batch without throwing when posthog can not be reached', function () {
+    Http::fake(fn () => throw new ConnectionException('cURL error 28: Connection timed out'));
+    $errorLog = $this->captureErrorLog();
+
+    Log::channel('posthog_test')->info('{"type":"request"}');
+    app()->terminate();
+
+    expect((string) file_get_contents($errorLog))
+        ->toContain('Chronicle dropped 1 events for PostHog: cURL error 28: Connection timed out');
 });
 
 it('throws in debug mode when the posthog channel is enabled without an api key', function () {
+    Http::fake();
+
     config()->set('app.debug', true);
     config()->set('chronicle.channels.posthog.api_key', null);
     config()->set('chronicle.default', 'posthog');
@@ -164,34 +256,39 @@ it('throws in debug mode when the posthog channel is enabled without an api key'
 })->throws(MissingPostHogApiKey::class, 'POSTHOG_API_KEY is required');
 
 it('does not throw outside debug mode when the api key is missing', function () {
+    Http::fake();
+
     config()->set('app.debug', false);
     config()->set('chronicle.channels.posthog.api_key', null);
     config()->set('chronicle.default', 'posthog');
 
-    $record = fn () => app(Chronicle::class)->record('request');
+    app(Chronicle::class)->record('request');
+    app()->terminate();
 
-    expect($record)->not->toThrow(MissingPostHogApiKey::class);
+    Http::assertNothingSent();
 });
 
 it('writes only to the log file by default', function () {
-    $emitted = [];
-    $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
+    Http::fake();
+
     config()->set('chronicle.channels.posthog.api_key', 'phc_test');
 
     app(Chronicle::class)->record('ping');
+    app()->terminate();
 
-    expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"')
-        ->and($emitted)->toBeEmpty();
+    expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"');
+    Http::assertNothingSent();
 });
 
 it('writes to the log file and to PostHog through the stack channel', function () {
-    $emitted = [];
-    $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
+    Http::fake();
+
     config()->set('chronicle.channels.posthog.api_key', 'phc_test');
     config()->set('chronicle.default', 'stack');
 
     app(Chronicle::class)->record('ping');
+    app()->terminate();
 
     expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"')
-        ->and($emitted)->toHaveCount(1);
+        ->and(posthogBatches()[0][0]['body'])->toBe(['stringValue' => 'ping']);
 });

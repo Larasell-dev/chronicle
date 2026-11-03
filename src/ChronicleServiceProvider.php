@@ -2,13 +2,16 @@
 
 namespace Larasell\Chronicle;
 
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Log\LogManager;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Support\ServiceProvider;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 use Monolog\Logger;
-use OpenTelemetry\SDK\Logs\LoggerProviderInterface;
 
 class ChronicleServiceProvider extends ServiceProvider
 {
@@ -36,10 +39,20 @@ class ChronicleServiceProvider extends ServiceProvider
                 $handler = new PostHogHandler(
                     host: (string) ($config['host'] ?? 'https://us.i.posthog.com'),
                     apiKey: (string) ($config['api_key'] ?? ''),
+                    http: $app->make(HttpFactory::class),
+                    service: (string) config('app.name', 'laravel'),
                     scope: $config['scope'] ?? 'chronicle',
                     level: $config['level'] ?? Logger::INFO,
-                    provider: $app->has(LoggerProviderInterface::class) ? $app->make(LoggerProviderInterface::class) : null,
                     debug: $app->hasDebugModeEnabled(),
+                );
+
+                // Laravel builds a channel's logger once per process, so these register once.
+                // Terminating runs after the response is sent; queue workers never terminate
+                // between jobs, so they send after each job instead.
+                $app->terminating(fn () => $handler->flush());
+                $app->make(Dispatcher::class)->listen(
+                    [JobProcessed::class, JobFailed::class],
+                    fn () => $handler->flush(),
                 );
 
                 return new Logger($app->environment(), [$handler]);
