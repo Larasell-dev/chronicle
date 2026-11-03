@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Support\Facades\Config;
 use Larasell\Chronicle\Tests\TestCase;
 use Monolog\Handler\TestHandler;

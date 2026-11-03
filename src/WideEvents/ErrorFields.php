@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Larasell\Chronicle\WideEvents;
 
 use Larasell\Chronicle\Exceptions\StructuredException;

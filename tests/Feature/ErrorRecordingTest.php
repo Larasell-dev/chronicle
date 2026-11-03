@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Exceptions\HasStructuredException;

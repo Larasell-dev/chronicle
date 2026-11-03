@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 // How: every test sends through a real posthog channel and Laravel's faked HTTP client, then
 // reads the OTLP JSON requests the fake recorded. TestCase prevents stray requests, so nothing
 // here reaches PostHog.
