@@ -10,8 +10,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 class SuccessfulRequestsSampler implements Sampler
 {
-    public function shouldLog(Request $request, Response $response, array $payload): bool
+    public function shouldLog(Request $request, Response $response, array $event): bool
     {
-        return $payload['status'] < 400;
+        return $event['status'] < 400;
     }
 }

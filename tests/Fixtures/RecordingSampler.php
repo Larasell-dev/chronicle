@@ -17,9 +17,9 @@ final class RecordingSampler implements Sampler
     /** @var list<array{string, int, mixed}> The method, status and url of each call, in order. */
     public array $seen = [];
 
-    public function shouldLog(Request $request, Response $response, array $payload): bool
+    public function shouldLog(Request $request, Response $response, array $event): bool
     {
-        $this->seen[] = [$request->getMethod(), $response->getStatusCode(), $payload['url']];
+        $this->seen[] = [$request->getMethod(), $response->getStatusCode(), $event['url']];
 
         return true;
     }
