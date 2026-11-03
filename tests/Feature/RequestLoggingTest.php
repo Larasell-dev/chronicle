@@ -3,7 +3,6 @@
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
@@ -15,21 +14,19 @@ use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
+use Monolog\Logger;
 use Monolog\LogRecord;
 use RuntimeException;
 
 function chronicleTestHandler(): TestHandler
 {
     config()->set('chronicle.enabled', true);
-    config()->set('chronicle.channel', 'chronicle_test');
-    config()->set('logging.channels.chronicle_test', [
-        'driver' => 'monolog',
-        'handler' => TestHandler::class,
+    config()->set('chronicle.default', 'test');
+    $handler = new TestHandler;
+    config()->set('chronicle.channels.test', [
+        'driver' => 'custom',
+        'via' => fn (): Logger => new Logger('test', [$handler]),
     ]);
-
-    $handler = Log::channel('chronicle_test')->getHandlers()[0];
-
-    expect($handler)->toBeInstanceOf(TestHandler::class);
 
     return $handler;
 }

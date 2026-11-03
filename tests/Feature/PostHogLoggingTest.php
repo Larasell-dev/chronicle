@@ -157,20 +157,43 @@ it('maps entry fields to otel attributes', function () {
 
 it('throws in debug mode when the posthog channel is enabled without an api key', function () {
     config()->set('app.debug', true);
-    config()->set('chronicle.posthog.enabled', true);
-    config()->set('chronicle.posthog.api_key', null);
-    config()->set('chronicle.channel', 'posthog');
+    config()->set('chronicle.channels.posthog.api_key', null);
+    config()->set('chronicle.default', 'posthog');
 
     app(Chronicle::class)->record('request');
 })->throws(MissingPostHogApiKey::class, 'POSTHOG_API_KEY is required');
 
 it('does not throw outside debug mode when the api key is missing', function () {
     config()->set('app.debug', false);
-    config()->set('chronicle.posthog.enabled', true);
-    config()->set('chronicle.posthog.api_key', null);
-    config()->set('chronicle.channel', 'posthog');
+    config()->set('chronicle.channels.posthog.api_key', null);
+    config()->set('chronicle.default', 'posthog');
 
     $record = fn () => app(Chronicle::class)->record('request');
 
     expect($record)->not->toThrow(MissingPostHogApiKey::class);
+});
+
+it('writes only to the log file by default', function () {
+    $emitted = [];
+    $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
+    config()->set('chronicle.channels.posthog.api_key', 'phc_test');
+    @unlink(storage_path('logs/chronicle.log'));
+
+    app(Chronicle::class)->record('ping');
+
+    expect(file_get_contents(storage_path('logs/chronicle.log')))->toContain('"type":"ping"')
+        ->and($emitted)->toBeEmpty();
+});
+
+it('writes to the log file and to PostHog through the stack channel', function () {
+    $emitted = [];
+    $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
+    config()->set('chronicle.channels.posthog.api_key', 'phc_test');
+    config()->set('chronicle.default', 'stack');
+    @unlink(storage_path('logs/chronicle.log'));
+
+    app(Chronicle::class)->record('ping');
+
+    expect(file_get_contents(storage_path('logs/chronicle.log')))->toContain('"type":"ping"')
+        ->and($emitted)->toHaveCount(1);
 });

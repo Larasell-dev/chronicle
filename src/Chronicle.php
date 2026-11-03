@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\WideEvents\ErrorFields;
 use Monolog\Level;
+use Psr\Log\LoggerInterface;
 use Throwable;
 
 class Chronicle
@@ -56,9 +57,33 @@ class Chronicle
 
         $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
 
-        Log::channel(config('chronicle.channel', 'chronicle'))->{$level->getName()}(
+        $this->channel()->{$level->getName()}(
             (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
         );
+    }
+
+    /**
+     * Returns the logger of the default Chronicle channel. Chronicle's channels live in
+     * config/chronicle.php, so they are registered with Laravel's log manager under a chronicle-
+     * prefix, which keeps them apart from the app's own channels. A stack's channel names point to
+     * Chronicle's channels when one has that name, and to the app's channels otherwise.
+     */
+    protected function channel(): LoggerInterface
+    {
+        $channels = config('chronicle.channels', []);
+
+        foreach ($channels as $name => $channel) {
+            if (($channel['driver'] ?? null) === 'stack') {
+                $channel['channels'] = array_map(
+                    fn (string $name): string => isset($channels[$name]) ? 'chronicle-'.$name : $name,
+                    $channel['channels'] ?? [],
+                );
+            }
+
+            config()->set('logging.channels.chronicle-'.$name, $channel);
+        }
+
+        return Log::channel('chronicle-'.config('chronicle.default', 'file'));
     }
 
     /**
