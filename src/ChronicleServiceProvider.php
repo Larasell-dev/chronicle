@@ -9,8 +9,10 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Log\LogManager;
+use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\ServiceProvider;
@@ -19,6 +21,7 @@ use Larasell\Chronicle\Exceptions\StructuredInvalidArgumentException;
 use Larasell\Chronicle\Exceptions\StructuredLogicException;
 use Larasell\Chronicle\Support\Assert;
 use Larasell\Chronicle\WideEvents\Chronicle;
+use Larasell\Chronicle\WideEvents\Jobs\JobLogger;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Larasell\Chronicle\WideEvents\Redactor;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
@@ -49,6 +52,11 @@ class ChronicleServiceProvider extends ServiceProvider
         // Before any provider boots, so another provider's boot() can already log through
         // Chronicle, and after the app's config, Testbench's defineEnvironment() included, is set.
         $this->app->booting(fn () => $this->registerChannels());
+
+        // Always listening, since chronicle.log_jobs is read when a job begins. Before any provider
+        // boots, so the job's event is written before the posthog channel's listener flushes it.
+        $this->app->singleton(JobLogger::class);
+        $this->app->booting(fn () => $this->listenToJobs());
 
         // Once every provider booted, since an app's sampler may depend on them. Building the
         // RequestLogger now resolves the sampler, so a broken chronicle.sampler stops the app at
@@ -92,6 +100,14 @@ class ChronicleServiceProvider extends ServiceProvider
 
             Config::set('logging.channels.chronicle-'.$name, $channel);
         }
+    }
+
+    protected function listenToJobs(): void
+    {
+        $events = $this->app->make(Dispatcher::class);
+        $events->listen(JobProcessing::class, [JobLogger::class, 'processing']);
+        $events->listen(JobProcessed::class, [JobLogger::class, 'processed']);
+        $events->listen(JobExceptionOccurred::class, [JobLogger::class, 'exceptionOccurred']);
     }
 
     /**
@@ -204,7 +220,9 @@ class ChronicleServiceProvider extends ServiceProvider
                 // between jobs, so they send after each job instead.
                 $app->terminating(fn () => $handler->flush());
                 $app->make(Dispatcher::class)->listen(
-                    [JobProcessed::class, JobFailed::class],
+                    // JobExceptionOccurred too, so the event of an attempt that fails and is retried
+                    // is sent now rather than after the next job.
+                    [JobProcessed::class, JobExceptionOccurred::class, JobFailed::class],
                     fn () => $handler->flush(),
                 );
 

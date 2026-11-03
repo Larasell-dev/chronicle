@@ -156,8 +156,8 @@ class Chronicle
     }
 
     /**
-     * Opens a scope for a unit of work that doesn't run in one callback. Returns its depth, for
-     * endScope().
+     * Opens a scope for a unit of work that doesn't run in one callback, e.g. a queued job, which
+     * begins and ends in two queue events. Returns its depth, for endScope().
      *
      * @internal
      */
@@ -623,9 +623,9 @@ class Chronicle
 
     /**
      * Closes the scope opened at $depth and returns the fields add() collected in it. Scopes close
-     * in the reverse order they opened: scope() and LogRequests close theirs before they return.
-     * Scopes left open above it, which would take a bug, are closed with it, so add() can't go on
-     * filling an event that is never written.
+     * in the reverse order they opened: scope() and LogRequests close theirs before they return,
+     * and a queued job runs entirely inside the scope that dispatched it synchronously. Scopes left open above it, which would take a bug, are closed with it, so add() can't
+     * go on filling an event that is never written.
      *
      * @return array<string, mixed>
      */

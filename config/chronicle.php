@@ -68,6 +68,12 @@ return [
     'redactor' => null,
 
     /*
+     * Whether Chronicle records an event of type job for every attempt of a
+     * queued job, with the fields Chronicle::add() collects while it runs.
+     */
+    'log_jobs' => env('CHRONICLE_LOG_JOBS', false),
+
+    /*
      * Whether request events log the client's ip. When off, ip is null.
      */
     'log_ip' => env('CHRONICLE_LOG_IP', true),
