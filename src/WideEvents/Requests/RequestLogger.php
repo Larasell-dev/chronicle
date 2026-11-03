@@ -60,7 +60,7 @@ class RequestLogger
             ...$this->routeParameterFields($request),
             'status' => $response->getStatusCode(),
             'duration_ms' => $durationKnown ? round($durationNanoseconds / 1_000_000, 2) : null,
-            'ip' => $request->ip(),
+            'ip' => config('chronicle.log_ip') ? $request->ip() : null,
             'user' => [
                 'id' => $user instanceof Authenticatable ? $user->getAuthIdentifier() : null,
             ],

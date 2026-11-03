@@ -276,3 +276,17 @@ it('fails at boot when the configured redactor does not implement the interface'
     // Act & Assert
     app(Chronicle::class);
 })->throws(StructuredLogicException::class, 'chronicle.redactor must resolve to an instance of');
+
+it('leaves out the ip when log ip is off', function () {
+    // Arrange
+    config()->set('chronicle.log_ip', false);
+    $handler = chronicleTestHandler();
+
+    Route::get('/plain', fn () => 'ok')->middleware(LogRequests::class);
+
+    // Act
+    $this->get('/plain');
+
+    // Assert
+    expect(chronicleEntries($handler)[0]['ip'])->toBeNull();
+});
