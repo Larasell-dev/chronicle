@@ -65,6 +65,21 @@ it('writes one structured json entry per request', function () {
         ->and($entry['timestamp'])->toBeString();
 });
 
+// Readers of chronicle.log parse it one line per event, so a newline inside a field must stay
+// escaped in the JSON rather than end the line.
+it('writes an event with line breaks in a field as one line of the log file', function () {
+    config()->set('chronicle.enabled', true);
+
+    @unlink(storage_path('logs/chronicle.log'));
+
+    app(Chronicle::class)->record('import.failed', ['output' => "line one\nline two\r\nline three"]);
+
+    $lines = explode("\n", rtrim(file_get_contents(storage_path('logs/chronicle.log')), "\n"));
+
+    expect($lines)->toHaveCount(1)
+        ->and(json_decode($lines[0], true)['output'])->toBe("line one\nline two\r\nline three");
+});
+
 it('logs the uri of routes without a name, also in a group with a name prefix', function () {
     $handler = chronicleTestHandler();
 
