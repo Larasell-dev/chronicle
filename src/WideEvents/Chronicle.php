@@ -279,6 +279,20 @@ class Chronicle
             $event[$key] = $value->replacement;
         }
 
+        // Checked before the report fields are added, since those are Chronicle's own.
+        $exposed = $this->exposedSecrets($event);
+        $assertionFailures = $this->check(
+            $assertionFailures,
+            $exposed === [],
+            'chronicle.assert.redacted',
+            'event() built '.implode(', ', $exposed).' with a secret key and a value that is not redacted',
+        );
+
+        // Outside debug mode the event is still written, so it fails safe: hidden after all.
+        foreach ($exposed as $key) {
+            $event[$key] = self::REDACTED;
+        }
+
         $event = array_merge($event, $this->unencodableFields($unencodable), $this->redactedFields($redacted));
 
         // The other side of the promises flatten() and eventWithoutOverflow() make, checked on
@@ -641,7 +655,9 @@ class Chronicle
 
                 // The JSON only holds the elements that fit, so the full count says how many are missing.
                 if ($keptCount < count($value)) {
-                    $flattened[$this->cut($path.'_count', self::KEY_BYTES_MAX)] = count($value);
+                    // Through redacted() too, so the event check finds no secret key left as is.
+                    $countKey = $this->cut($path.'_count', self::KEY_BYTES_MAX);
+                    $flattened[$countKey] = $this->redacted($path.'_count', $lastKey.'_count', count($value));
                 }
 
                 continue;
@@ -669,16 +685,10 @@ class Chronicle
      */
     private function redacted(string $path, string $key, mixed $value): mixed
     {
-        foreach (explode('.', $key) as $part) {
-            $words = self::words($part);
+        if ($this->isSecretKey($key)) {
+            $this->redactedPaths[] = $this->cut($path, self::KEY_BYTES_MAX);
 
-            foreach ($this->redactedWords as $redactedWords) {
-                if (str_contains($words, $redactedWords)) {
-                    $this->redactedPaths[] = $this->cut($path, self::KEY_BYTES_MAX);
-
-                    return self::REDACTED;
-                }
-            }
+            return self::REDACTED;
         }
 
         if ($this->redactor === null) {
@@ -692,6 +702,57 @@ class Chronicle
         }
 
         return $redacted;
+    }
+
+    /**
+     * Whether a key contains a key of chronicle.redact as whole words, in any of its dotted parts.
+     */
+    private function isSecretKey(string $key): bool
+    {
+        foreach (explode('.', $key) as $part) {
+            $words = self::words($part);
+
+            foreach ($this->redactedWords as $redactedWords) {
+                if (str_contains($words, $redactedWords)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The fields of the event whose key is secret but whose value isn't REDACTED: the other side
+     * of redacted(), which flatten() calls on every key. Each part of a field's key was checked
+     * there, so only a field that bypassed flatten() can be one. The header never goes through
+     * flatten(), and a key cut to KEY_BYTES_MAX may end in a word its full key didn't have, e.g.
+     * token from tokens, so neither is checked.
+     *
+     * @param  array<string, mixed>  $event
+     * @return list<string>
+     */
+    private function exposedSecrets(array $event): array
+    {
+        $exposed = [];
+
+        foreach ($event as $key => $value) {
+            if (in_array($key, ['timestamp', 'type', 'chronicle.fields_dropped'], true)) {
+                continue;
+            }
+
+            // A cut key keeps more than KEY_BYTES_MAX - 6 bytes, since the next character would
+            // have taken at most 6.
+            if ($this->encodedBytes($key) > self::KEY_BYTES_MAX - 6) {
+                continue;
+            }
+
+            if ($value !== self::REDACTED && $this->isSecretKey($key)) {
+                $exposed[] = $key;
+            }
+        }
+
+        return $exposed;
     }
 
     /**
