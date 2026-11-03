@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Larasell\Chronicle\WideEvents\ErrorFields;
+use Larasell\Chronicle\WideEvents\EventDefaults;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -53,14 +54,13 @@ class RequestLogger
         $exception = property_exists($response, 'exception') ? $response->exception : null;
         $errorFields = $exception instanceof Throwable ? ErrorFields::for($exception) : [];
 
-        $event = $this->chronicle->event('request', $errorFields, defaults: $requestFields);
-
-        // Without a sampler every request event is kept.
-        if ($this->sampler?->shouldLog($request, $response, $event) === false) {
-            return;
-        }
-
-        $this->chronicle->write($event, $this->levelForStatus($response->getStatusCode()));
+        $this->chronicle->recordRequest(
+            requestFields: new EventDefaults($requestFields),
+            errorFields: $errorFields,
+            level: $this->levelForStatus($response->getStatusCode()),
+            // Without a sampler every request event is kept.
+            shouldLog: fn (array $event): bool => $this->sampler?->shouldLog($request, $response, $event) ?? true,
+        );
     }
 
     /**
