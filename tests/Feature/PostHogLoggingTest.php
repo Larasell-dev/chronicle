@@ -177,11 +177,10 @@ it('writes only to the log file by default', function () {
     $emitted = [];
     $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
     config()->set('chronicle.channels.posthog.api_key', 'phc_test');
-    @unlink(storage_path('logs/chronicle.log'));
 
     app(Chronicle::class)->record('ping');
 
-    expect(file_get_contents(storage_path('logs/chronicle.log')))->toContain('"type":"ping"')
+    expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"')
         ->and($emitted)->toBeEmpty();
 });
 
@@ -190,10 +189,9 @@ it('writes to the log file and to PostHog through the stack channel', function (
     $this->app->instance(LoggerProviderInterface::class, posthogTestProvider($emitted));
     config()->set('chronicle.channels.posthog.api_key', 'phc_test');
     config()->set('chronicle.default', 'stack');
-    @unlink(storage_path('logs/chronicle.log'));
 
     app(Chronicle::class)->record('ping');
 
-    expect(file_get_contents(storage_path('logs/chronicle.log')))->toContain('"type":"ping"')
+    expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"')
         ->and($emitted)->toHaveCount(1);
 });

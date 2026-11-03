@@ -19,13 +19,11 @@ use RuntimeException;
 it('writes one structured json entry per request', function () {
     config()->set('chronicle.enabled', true);
 
-    @unlink(storage_path('logs/chronicle.log'));
-
     Route::post('/login', fn () => 'ok')->middleware(LogRequests::class);
 
     $this->post('/login', ['email' => 'nils@example.com']);
 
-    $log = file_get_contents(storage_path('logs/chronicle.log'));
+    $log = file_get_contents(chronicleLogPath());
 
     expect($log)->toBeString();
 
@@ -59,13 +57,11 @@ it('logs the uri of routes without a name, also in a group with a name prefix', 
 it('does not log when disabled', function () {
     config()->set('chronicle.enabled', false);
 
-    @unlink(storage_path('logs/chronicle.log'));
-
     Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
 
     $this->get('/ping')->assertHeaderMissing('X-Request-Id');
 
-    expect(file_exists(storage_path('logs/chronicle.log')))->toBeFalse();
+    expect(file_exists(chronicleLogPath()))->toBeFalse();
 });
 
 it('logs 2xx responses at info level', function () {
