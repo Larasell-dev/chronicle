@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\WideEvents\Chronicle;
+use Larasell\Chronicle\WideEvents\Outputs\Exceptions\InvalidChronicleEvent;
 use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Monolog\Level;
@@ -329,4 +330,35 @@ it('writes to the log file and to PostHog through the stack channel', function (
     // Assert
     expect(file_get_contents(chronicleLogPath()))->toContain('"type":"ping"')
         ->and(posthogBatches()[0][0]['body'])->toBe(['stringValue' => 'ping']);
+});
+
+it('throws in debug mode when the posthog channel gets a message that is not a json object', function (string $message) {
+    // Arrange
+    Http::fake();
+
+    config()->set('app.debug', true);
+
+    // Act & Assert
+    Log::channel('posthog_test')->info($message);
+})->with(['plain text' => ['User logged in'], 'empty' => [''], 'a json list' => ['[1,2]']])
+    ->throws(InvalidChronicleEvent::class, 'not a JSON object');
+
+it('sends a message that is not a json object with the reason outside debug mode', function () {
+    // Arrange
+    Http::fake();
+
+    config()->set('app.debug', false);
+
+    // Act
+    Log::channel('posthog_test')->info('User logged in');
+    app()->terminate();
+
+    // Assert
+    $record = posthogBatches()[0][0];
+
+    expect($record['body'])->toBe(['stringValue' => 'log'])
+        ->and(posthogAttributes($record))->toBe([
+            'message' => ['stringValue' => 'User logged in'],
+            'chronicle.decode_error' => ['stringValue' => 'Syntax error'],
+        ]);
 });

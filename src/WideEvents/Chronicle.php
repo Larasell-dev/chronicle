@@ -8,6 +8,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
+use JsonException;
 use Larasell\Chronicle\WideEvents\Enums\Level;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -19,7 +20,7 @@ class Chronicle
      * the cost is in bytes: log lines on disk and the PostHog payload. Strings are cut on UTF-8
      * character boundaries, so a value can end up to three bytes shorter.
      */
-    private const VALUE_BYTES_MAX = 1000;
+    public const VALUE_BYTES_MAX = 1000;
 
     /** The most bytes a dotted key keeps, so keys can't make an event large either. */
     private const KEY_BYTES_MAX = 200;
@@ -64,10 +65,15 @@ class Chronicle
      * fields. Defaults are fields Chronicle measured itself, such as a request's user.id, which
      * apps may replace through Context.
      *
+     * @internal
+     *
      * Every event is bounded: see the limits at the top of this class. An event over FIELDS_MAX
      * drops fields, those of Context first, and counts them in chronicle.fields_dropped.
      *
-     * @internal
+     * Every value json_encode can't encode, such as NAN, INF or a resource, becomes null, and
+     * chronicle.unencodable maps its key to why, so one bad value never costs the whole event.
+     * That map is one JSON value like any other, so it obeys VALUE_BYTES_MAX, adding
+     * chronicle.unencodable_count when it is cut. Both count towards FIELDS_MAX.
      *
      * @param  array<mixed>  $fields
      * @param  array<mixed>  $defaults
@@ -84,32 +90,83 @@ class Chronicle
         $fields = $this->flatten($fields);
 
         $event = array_merge($header, $defaults, $context, $fields);
+        $unencodable = array_filter($event, fn (mixed $value): bool => $value instanceof UnencodableValue);
 
-        if (count($event) > self::FIELDS_MAX) {
-            return $this->eventWithoutOverflow($event, array_diff_key($context, $fields));
+        // Room for chronicle.unencodable, and for its _count when the reasons don't all fit.
+        $fieldsReserved = count($this->unencodableFields($unencodable));
+
+        if (count($event) + $fieldsReserved > self::FIELDS_MAX) {
+            $event = $this->eventWithoutOverflow(
+                $event,
+                array_diff_key($context, $fields),
+                $fieldsReserved,
+            );
+            $unencodable = array_intersect_key($unencodable, $event);
         }
 
-        return $event;
+        foreach ($unencodable as $key => $value) {
+            $event[$key] = $value->replacement;
+        }
+
+        return array_merge($event, $this->unencodableFields($unencodable));
+    }
+
+    /**
+     * The fields that report an event's unencodable values: chronicle.unencodable, a JSON object
+     * from each key to its reason, and chronicle.unencodable_count when that object had to be cut.
+     *
+     * @param  array<string, UnencodableValue>  $unencodable
+     * @return array<string, int|string>
+     */
+    private function unencodableFields(array $unencodable): array
+    {
+        return $this->reasonFields(
+            'chronicle.unencodable',
+            array_map(fn (UnencodableValue $value): string => $value->reason, $unencodable),
+        );
+    }
+
+    /**
+     * A field that maps keys to reasons as one JSON object, bounded like any value, and its
+     * _count when the object had to be cut. No fields when there are no reasons.
+     *
+     * @param  array<string, string>  $reasons
+     * @return array<string, int|string>
+     */
+    private function reasonFields(string $field, array $reasons): array
+    {
+        if ($reasons === []) {
+            return [];
+        }
+
+        [$json, $keptCount] = $this->encodeArray($reasons);
+
+        if ($keptCount < count($reasons)) {
+            return [$field => $json, $field.'_count' => count($reasons)];
+        }
+
+        return [$field => $json];
     }
 
     /**
      * Drops fields until the event, with the chronicle.fields_dropped count added, has FIELDS_MAX
      * fields. Fields that only Context sets go first, latest first: they accumulate over a whole
      * request, so they are what grows past the limit, while the defaults and the caller's fields
-     * describe this event. The timestamp and type are never dropped.
+     * describe this event. The timestamp and type are never dropped. $fieldsReserved leaves room
+     * for fields the caller adds afterwards.
      *
      * @param  array<string, mixed>  $event
      * @param  array<string, mixed>  $contextOnly
      * @return array<string, mixed>
      */
-    private function eventWithoutOverflow(array $event, array $contextOnly): array
+    private function eventWithoutOverflow(array $event, array $contextOnly, int $fieldsReserved): array
     {
         $header = ['timestamp' => true, 'type' => true];
         $rest = array_diff_key($event, $header, $contextOnly);
 
         $dropOrder = array_merge(array_reverse(array_keys($contextOnly)), array_reverse(array_keys($rest)));
         // One more than the overflow, for chronicle.fields_dropped itself.
-        $dropped = array_slice($dropOrder, 0, count($event) - self::FIELDS_MAX + 1);
+        $dropped = array_slice($dropOrder, 0, count($event) + $fieldsReserved - self::FIELDS_MAX + 1);
 
         $event = array_diff_key($event, array_flip($dropped));
         $event['chronicle.fields_dropped'] = count($dropped);
@@ -130,10 +187,44 @@ class Chronicle
             return;
         }
 
-        $this->channel()->log(
-            $level->value,
-            (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
-        );
+        $this->channel()->log($level->value, $this->encodeEvent($event));
+    }
+
+    /**
+     * Encodes an event as one JSON line. event() already replaced every value json_encode can't
+     * encode by null, so this can only fail through a bug in Chronicle itself, or an object whose
+     * jsonSerialize() fails only the second time. Then it encodes a small event that keeps the type and timestamp and says
+     * what failed, so the failure is logged rather than lost.
+     *
+     * Either way the result is one JSON object on one line. The file channel writes it with
+     * inline line breaks allowed, and readers take a line as an event, so a line break inside
+     * would split it. PostHogHandler::entry() checks the other side, that a message is an object.
+     *
+     * @param  array<string, mixed>  $event
+     */
+    private function encodeEvent(array $event): string
+    {
+        return $this->encodeLine($event);
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    private function encodeLine(array $event): string
+    {
+        $flags = JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR;
+
+        try {
+            return json_encode($event, $flags);
+        } catch (Throwable $throwable) {
+            return json_encode([
+                'timestamp' => is_string($event['timestamp'] ?? null) ? $event['timestamp'] : now()->toIso8601String(),
+                'type' => is_string($event['type'] ?? null) ? $event['type'] : 'unknown',
+                'chronicle.encode_error' => mb_strcut(
+                    $throwable::class.': '.$throwable->getMessage(), 0, self::VALUE_BYTES_MAX, 'UTF-8',
+                ),
+            ], $flags);
+        }
     }
 
     /**
@@ -171,7 +262,8 @@ class Chronicle
     /**
      * Flattens nested arrays into dotted keys, in the order they appear, a later key winning over
      * an earlier one with the same name. Lists, and arrays below DEPTH_MAX, are stored as one JSON
-     * value, since their positions make poor keys. Strings are cut to VALUE_BYTES_MAX.
+     * value, since their positions make poor keys. Strings are cut to VALUE_BYTES_MAX. A value
+     * json_encode can't encode is stored as an UnencodableValue, for event() to report.
      *
      * Walks with an explicit stack rather than recursion, so nesting depth costs no call stack.
      * Children are pushed in reverse, so they pop, and are flattened, in their original order.
@@ -199,14 +291,15 @@ class Chronicle
             }
 
             if (! is_array($value)) {
-                $flattened[$key] = $value;
+                [, $reason] = $this->encodeElement($value);
+                $flattened[$key] = $reason === null ? $value : new UnencodableValue($reason, null);
 
                 continue;
             }
 
             if ($this->encodesWhole($value, $depth)) {
-                [$json, $keptCount] = $this->encodeArray($value);
-                $flattened[$key] = $json;
+                [$json, $keptCount, $reason] = $this->encodeArray($value);
+                $flattened[$key] = $reason === null ? $json : new UnencodableValue($reason, $json);
 
                 // The JSON only holds the elements that fit, so the full count says how many are missing.
                 if ($keptCount < count($value)) {
@@ -241,21 +334,24 @@ class Chronicle
 
     /**
      * Encodes an array as JSON of at most VALUE_BYTES_MAX bytes. Elements that don't fit are left
-     * out whole, never cut, so the value stays valid JSON.
+     * out whole, never cut, so the value stays valid JSON. An element that can't be encoded, such
+     * as INF or one nested deeper than DEPTH_MAX, becomes null, and the reason names the first one.
      *
      * @param  array<mixed>  $array
-     * @return array{string, int} The JSON, and how many elements it holds.
+     * @return array{string, int, ?string} The JSON, how many elements it holds, and why some of
+     *                                     them couldn't be encoded, or null when all could.
      */
     private function encodeArray(array $array): array
     {
         $isList = array_is_list($array);
         $parts = [];
         $jsonBytes = 2; // The brackets around the parts.
+        $failures = [];
 
         foreach ($array as $key => $element) {
-            $keyPrefix = $isList ? '' : json_encode((string) $key, JSON_INVALID_UTF8_SUBSTITUTE).':';
-            // An element json_encode can't encode, e.g. INF or one nested deeper than DEPTH_MAX, is null.
-            $part = $keyPrefix.(json_encode($element, JSON_INVALID_UTF8_SUBSTITUTE, self::DEPTH_MAX) ?: 'null');
+            [$part, $reason] = $this->encodeElement($element);
+            $keyPrefix = $isList ? '' : json_encode((string) $key, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR).':';
+            $part = $keyPrefix.$part;
 
             $jsonBytesNext = $jsonBytes + strlen($part) + ($parts === [] ? 0 : 1);
 
@@ -265,10 +361,60 @@ class Chronicle
 
             $parts[] = $part;
             $jsonBytes = $jsonBytesNext;
+
+            // Only elements that made it into the JSON count, since only they are nulls in it.
+            if ($reason !== null) {
+                $failures[] = "[{$key}] {$reason}";
+            }
         }
 
         $json = $isList ? '['.implode(',', $parts).']' : '{'.implode(',', $parts).'}';
 
-        return [$json, count($parts)];
+        if ($failures === []) {
+            return [$json, count($parts), null];
+        }
+
+        $more = count($failures) - 1;
+
+        return [$json, count($parts), $failures[0].($more === 0 ? '' : ", and {$more} more")];
+    }
+
+    /**
+     * Encodes one value as JSON. A value json_encode can't encode becomes null, with the reason:
+     * NAN, INF and -INF by name, anything else by its type and json_encode's error. An exception
+     * from jsonSerialize() is caught too, so one bad object never costs the whole event.
+     *
+     * @return array{string, ?string} The JSON, and why the value couldn't be encoded, or null.
+     */
+    private function encodeElement(mixed $element): array
+    {
+        try {
+            return [$this->encodeJson($element), null];
+        } catch (JsonException $exception) {
+            if (is_float($element)) {
+                if (is_nan($element)) {
+                    return ['null', 'NAN'];
+                }
+
+                return ['null', $element > 0 ? 'INF' : '-INF'];
+            }
+
+            return ['null', get_debug_type($element).': '.$exception->getMessage()];
+        } catch (Throwable $throwable) {
+            return ['null', get_debug_type($element).': jsonSerialize() threw '.$throwable::class];
+        }
+    }
+
+    /**
+     * json_encode, throwing on failure. It also runs the jsonSerialize() of every object it meets
+     * and lets their exceptions through unchanged, which PHPStan's signature of json_encode leaves
+     * out, so this declares them.
+     *
+     * @throws JsonException When the value can't be encoded.
+     * @throws Throwable When a jsonSerialize() throws.
+     */
+    private function encodeJson(mixed $value): string
+    {
+        return json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR, self::DEPTH_MAX);
     }
 }

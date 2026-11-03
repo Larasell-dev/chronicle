@@ -508,6 +508,167 @@ it('drops context fields first once an event has more than 256 fields', function
         ->and($entry)->not->toHaveKey('context.f252');
 });
 
+function unencodableValue(string $kind): mixed
+{
+    return match ($kind) {
+        'NAN' => fdiv(0, 0),
+        'INF' => fdiv(1, 0),
+        '-INF' => log(0),
+        'a resource' => fopen('php://memory', 'r'),
+        default => throw new UnexpectedValueException("Unknown kind [{$kind}]."),
+    };
+}
+
+it('writes the event and reports a value json can not encode', function (string $kind, string $reason, string $source) {
+    // Arrange
+    $handler = chronicleTestHandler();
+    $fields = ['order.id' => 7];
+
+    if ($source === 'context') {
+        Context::add('bad', unencodableValue($kind));
+    } else {
+        $fields['bad'] = unencodableValue($kind);
+    }
+
+    // Act
+    app(Chronicle::class)->record('checkout', $fields);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['type'])->toBe('checkout')
+        ->and($entry['order.id'])->toBe(7)
+        ->and($entry)->toHaveKey('bad')
+        ->and($entry['bad'])->toBeNull()
+        ->and(chronicleEntry(Arr::string($entry, 'chronicle.unencodable')))->toBe(['bad' => $reason]);
+})->with([
+    'NAN' => ['NAN', 'NAN'],
+    'INF' => ['INF', 'INF'],
+    '-INF' => ['-INF', '-INF'],
+    'a resource' => ['a resource', 'resource (stream): Type is not supported'],
+])->with(['fields', 'context']);
+
+it('reports every value json can not encode in one object', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('checkout', [
+        'conversion' => unencodableValue('NAN'),
+        'score' => unencodableValue('-INF'),
+        'order.id' => 7,
+        'file' => unencodableValue('a resource'),
+    ]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['order.id'])->toBe(7)
+        ->and(chronicleEntry(Arr::string($entry, 'chronicle.unencodable')))->toBe([
+            'conversion' => 'NAN',
+            'score' => '-INF',
+            'file' => 'resource (stream): Type is not supported',
+        ]);
+});
+
+it('keeps the encodable elements of a list and reports the others', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('ratios', ['ratios' => [1, unencodableValue('NAN'), 2, unencodableValue('INF')]]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['ratios'])->toBe('[1,null,2,null]')
+        ->and(chronicleEntry(Arr::string($entry, 'chronicle.unencodable')))->toBe(['ratios' => '[1] NAN, and 1 more']);
+});
+
+it('does not report a bad context value that a field replaces', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+    Context::add('score', unencodableValue('NAN'));
+
+    // Act
+    app(Chronicle::class)->record('search', ['score' => 3]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['score'])->toBe(3)
+        ->and($entry)->not->toHaveKey('chronicle.unencodable');
+});
+
+it('reports an object whose jsonSerialize throws', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    // Act
+    app(Chronicle::class)->record('checkout', ['order.id' => 7, 'money' => new class implements JsonSerializable
+    {
+        public function jsonSerialize(): mixed
+        {
+            throw new RuntimeException('currency missing');
+        }
+    }]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['order.id'])->toBe(7)
+        ->and($entry['money'])->toBeNull()
+        ->and(chronicleEntry(Arr::string($entry, 'chronicle.unencodable')))->toBe([
+            'money' => 'JsonSerializable@anonymous: jsonSerialize() threw RuntimeException',
+        ]);
+});
+
+it('counts the unencodable report towards the field limit', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+
+    foreach (range(0, 999) as $index) {
+        Context::add("context.f{$index}", $index);
+    }
+
+    // Act
+    app(Chronicle::class)->record('wide', ['score' => unencodableValue('NAN')]);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+
+    // 2 header + 1,000 context + 1 field = 1,003. Keeping 256 with the dropped count and the
+    // report means dropping 1,003 - 256 + 2 = 749 fields.
+    expect($entry)->toHaveCount(256)
+        ->and($entry['chronicle.fields_dropped'])->toBe(749)
+        ->and(chronicleEntry(Arr::string($entry, 'chronicle.unencodable')))->toBe(['score' => 'NAN']);
+});
+
+it('cuts the unencodable report to 1000 bytes of valid json and counts every value', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+    $fields = [];
+
+    foreach (range(0, 99) as $index) {
+        $fields["f{$index}"] = unencodableValue('NAN');
+    }
+
+    // Act
+    app(Chronicle::class)->record('wide', $fields);
+
+    // Assert
+    $entry = chronicleEntries($handler)[0];
+    $json = Arr::string($entry, 'chronicle.unencodable');
+    $reported = chronicleEntry($json);
+    $expected = array_map(fn (int $index): string => "f{$index}", range(0, count($reported) - 1));
+
+    // Each entry like "f10":"NAN" is about 12 bytes, so 100 of them can't fit in 1,000.
+    expect($reported)->toBe(array_fill_keys($expected, 'NAN'))
+        ->and(count($reported))->toBeLessThan(100)
+        ->and(strlen($json))->toBeLessThanOrEqual(1000)
+        ->and($entry['chronicle.unencodable_count'])->toBe(100);
+});
+
 it('drops request logs when the sampler returns false', function () {
     // Arrange
     $handler = chronicleTestHandler();

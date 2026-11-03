@@ -6,10 +6,14 @@ namespace Larasell\Chronicle\WideEvents\Outputs;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use JsonException;
+use Larasell\Chronicle\WideEvents\Chronicle;
+use Larasell\Chronicle\WideEvents\Outputs\Exceptions\InvalidChronicleEvent;
 use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
+use stdClass;
 use Throwable;
 
 /**
@@ -80,12 +84,7 @@ class PostHogHandler extends AbstractProcessingHandler
             return;
         }
 
-        $entry = json_decode($record->message, true);
-
-        if (! is_array($entry)) {
-            return;
-        }
-
+        $entry = $this->entry($record->message);
         $entryBytes = strlen($record->message);
 
         if ($this->batchBytes + $entryBytes > self::BATCH_BYTES_MAX) {
@@ -152,6 +151,47 @@ class PostHogHandler extends AbstractProcessingHandler
     private function reportDropped(int $eventCount, string $reason): void
     {
         error_log(sprintf('Chronicle dropped %d events for PostHog: %s', $eventCount, $reason));
+    }
+
+    /**
+     * Decodes a message into the event Chronicle encoded. Chronicle::write() only writes JSON
+     * objects, so anything else was written to this channel some other way. That fails loudly in
+     * debug mode, like a missing key. In production it is sent as it is, with the reason it
+     * couldn't be read, since a log line we can't parse is still better than one we drop.
+     *
+     * @return array<mixed>
+     */
+    protected function entry(string $message): array
+    {
+        // Decoded as objects, not arrays, so a JSON list can't pass for an event: its integer
+        // keys would make invalid attribute names.
+        try {
+            $entry = json_decode($message, false, flags: JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            return $this->undecodableEntry($message, $exception->getMessage());
+        }
+
+        if ($entry instanceof stdClass) {
+            return get_object_vars($entry);
+        }
+
+        return $this->undecodableEntry($message, 'it decodes to '.get_debug_type($entry));
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function undecodableEntry(string $message, string $reason): array
+    {
+        if ($this->debug) {
+            throw InvalidChronicleEvent::forPostHogChannel($reason);
+        }
+
+        return [
+            'type' => 'log',
+            'message' => mb_strcut($message, 0, Chronicle::VALUE_BYTES_MAX, 'UTF-8'),
+            'chronicle.decode_error' => $reason,
+        ];
     }
 
     /**
