@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.4.0](https://github.com/Larasell-dev/chronicle/compare/v0.3.0...v0.4.0) (2026-11-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* log a query exception's SQL without its bindings
+* log the query and path values as redacted fields
+* redact values of secret keys in every event
+* keep the request fields Chronicle measured over Context
+* name the structured error code argument errorCode
+* make the error fields of structured exceptions private
+* flatten objects through their JSON form, like arrays
+* rename the sampling config to sampler
+* register Chronicle's channels once at boot
+* replace values JSON can't encode instead of losing the event
+* bound every event in depth, field count and bytes
+* move Chronicle into the WideEvents namespace
+* take recordError arguments in record's order, with own Level
+* send PostHog events in batches, without OpenTelemetry
+
+### Features
+
+* add a facade with a fake and scoped events ([3a7f656](https://github.com/Larasell-dev/chronicle/commit/3a7f656bedfdb320fe1fc0e52db3e859fcc09258))
+* add fields to the current request's event with add() ([c9fa94d](https://github.com/Larasell-dev/chronicle/commit/c9fa94d12d8aaa17828bf19feb2a769edfb6d68e))
+* assert that redaction left no secret behind ([fb91e10](https://github.com/Larasell-dev/chronicle/commit/fb91e10b6584fb80a6f33b1a34d1ef46cd26d69d))
+* bound every event in depth, field count and bytes ([14fdf0f](https://github.com/Larasell-dev/chronicle/commit/14fdf0f5adfd93650a32fcbb8c4f9006c3514360))
+* check Chronicle's own guarantees with assertions ([957059a](https://github.com/Larasell-dev/chronicle/commit/957059a3bb3b0c7363f5e9a08d9ee9b6bd3579d6))
+* flatten objects through their JSON form, like arrays ([6f4d6a5](https://github.com/Larasell-dev/chronicle/commit/6f4d6a5c4703ecde5c0bd709cb1d81703ff9d825))
+* keep the request fields Chronicle measured over Context ([e9180d1](https://github.com/Larasell-dev/chronicle/commit/e9180d1527701daafc9ad9f0c0486ddaf5d9e845))
+* list redacted keys in chronicle.redacted ([3b6f383](https://github.com/Larasell-dev/chronicle/commit/3b6f383682447cbbc3190dc810674b03b333783d))
+* log a query exception's SQL without its bindings ([01a9d7e](https://github.com/Larasell-dev/chronicle/commit/01a9d7eda2844d1dffac33f81acdf38e378116d3))
+* log PHP's own exception code as error.exception_code ([a81161d](https://github.com/Larasell-dev/chronicle/commit/a81161d8363636b1b555c6e35e6567889a8dd731))
+* log queued jobs when CHRONICLE_LOG_JOBS is on ([93a48e6](https://github.com/Larasell-dev/chronicle/commit/93a48e678b48b193ef13c543cbf6c1cd844a6dbd))
+* log the query and path values as redacted fields ([da90cca](https://github.com/Larasell-dev/chronicle/commit/da90ccaf6d271e4abfdbbbac9b59828546f75ea9))
+* make logging the client's ip optional ([c86d790](https://github.com/Larasell-dev/chronicle/commit/c86d790021c5fa8f96425c1376fbdda5200c7db8))
+* redact values of secret keys in every event ([09bded9](https://github.com/Larasell-dev/chronicle/commit/09bded9b891fa722af29b861693ff44d5afcdd5a))
+* replace values JSON can't encode instead of losing the event ([8ab9e3a](https://github.com/Larasell-dev/chronicle/commit/8ab9e3a6c7efb6cafea1fdaba95e8dda7c98ef1b))
+* send PostHog events in batches, without OpenTelemetry ([3675e9f](https://github.com/Larasell-dev/chronicle/commit/3675e9f2cb04586d7edac269ce0a65cb18d3c4ad))
+* take recordError arguments in record's order, with own Level ([944e379](https://github.com/Larasell-dev/chronicle/commit/944e379d0456c3e8c774cd9fd5536fbaded79690))
+
+
+### Bug Fixes
+
+* bound every value by its JSON-escaped size ([7ab24ab](https://github.com/Larasell-dev/chronicle/commit/7ab24aba4f3a8fb9be9d99582ab1f3eb01869d6b))
+* log a request once when LogRequests runs twice ([25dcc8c](https://github.com/Larasell-dev/chronicle/commit/25dcc8c6784ddce4d3d56371240f776573268f2d))
+* log no request id when the request has none ([2b160d7](https://github.com/Larasell-dev/chronicle/commit/2b160d76cafd39ef685499e37405889f5aec80d5))
+* measure request durations with the monotonic clock ([fb1551b](https://github.com/Larasell-dev/chronicle/commit/fb1551b22a3a3954a098c1d18a4223f2f55907a1))
+* report an exception context that is not an array ([e007949](https://github.com/Larasell-dev/chronicle/commit/e007949196ab2ba1a5941e0d65e674e97abae32d))
+* warn when the PostHog channel has no API key ([8567155](https://github.com/Larasell-dev/chronicle/commit/856715537c043c7608ce871eb899c00b80dd899e))
+
+
+### Performance Improvements
+
+* register Chronicle's channels once at boot ([2acb392](https://github.com/Larasell-dev/chronicle/commit/2acb392653b94fda3c6c89d2a8baa1919d35a27e))
+* resolve the sampler once, when the RequestLogger is built ([7a96839](https://github.com/Larasell-dev/chronicle/commit/7a9683990f044fa8b0fa40d29eb445b315234689))
+
+
+### Code Refactoring
+
+* make the error fields of structured exceptions private ([ea0712e](https://github.com/Larasell-dev/chronicle/commit/ea0712e730d181ae1293f0aef14ec4e43159b324))
+* move Chronicle into the WideEvents namespace ([0c46634](https://github.com/Larasell-dev/chronicle/commit/0c4663420a129cf2b88dfb3ffe655ec68665da55))
+* name the structured error code argument errorCode ([1ca5427](https://github.com/Larasell-dev/chronicle/commit/1ca54278c0f8b9db38209eafac96d22b75c1c797))
+* rename the sampling config to sampler ([8816fea](https://github.com/Larasell-dev/chronicle/commit/8816fea7d1d942b885623813dfb4ae8f63ccd130))
+
 ## [0.3.0](https://github.com/Larasell-dev/chronicle/compare/v0.2.7...v0.3.0) (2026-11-03)
 
 
