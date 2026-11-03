@@ -14,7 +14,7 @@ use Throwable;
  */
 final class StructuredOutOfRangeException extends OutOfRangeException implements StructuredException
 {
-    use HasStructuredException;
+    use HasStructuredFields;
 
     public function __construct(
         string $code,

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Context;
-use Larasell\Chronicle\Exceptions\HasStructuredException;
+use Larasell\Chronicle\Exceptions\HasStructuredFields;
 use Larasell\Chronicle\Exceptions\StructuredException;
 use Larasell\Chronicle\Exceptions\StructuredUnexpectedValueException;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
@@ -121,9 +121,16 @@ it('merges exception context and lets call-site context win', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
-    $exception = new class('Payment failed') extends RuntimeException implements StructuredException
+    $exception = new class extends RuntimeException implements StructuredException
     {
-        use HasStructuredException;
+        use HasStructuredFields;
+
+        public function __construct()
+        {
+            parent::__construct('Payment failed');
+
+            $this->withError('billing.declined');
+        }
 
         /**
          * @return array<string, mixed>
@@ -136,8 +143,6 @@ it('merges exception context and lets call-site context win', function () {
             ];
         }
     };
-
-    $exception->errorCode = 'billing.declined';
 
     // Act
     app(Chronicle::class)->recordError($exception, fields: ['shared' => 'from-call-site']);
