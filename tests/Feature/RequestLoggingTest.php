@@ -20,12 +20,15 @@ use Monolog\LogRecord;
 use RuntimeException;
 
 it('writes one structured json entry per request', function () {
+    // Arrange
     config()->set('chronicle.enabled', true);
 
     Route::post('/login', fn () => 'ok')->middleware(LogRequests::class);
 
+    // Act
     $this->post('/login', ['email' => 'nils@example.com']);
 
+    // Assert
     $entry = chronicleEntry(explode("\n", trim(File::get(chronicleLogPath())))[0]);
 
     expect($entry['type'])->toBe('request')
@@ -39,6 +42,7 @@ it('writes one structured json entry per request', function () {
 });
 
 it('logs the uri of routes without a name, also in a group with a name prefix', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::name('shop.')->group(function (): void {
@@ -46,62 +50,79 @@ it('logs the uri of routes without a name, also in a group with a name prefix', 
         Route::get('/cart', fn () => 'ok')->middleware(LogRequests::class)->name('cart');
     });
 
+    // Act
     $this->get('/products/1');
     $this->get('/cart');
 
+    // Assert
     expect(array_column(chronicleEntries($handler), 'route'))->toBe(['products/{product}', 'shop.cart']);
 });
 
 it('does not log when disabled', function () {
+    // Arrange
     config()->set('chronicle.enabled', false);
 
     Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
 
+    // Act
     $this->get('/ping')->assertHeaderMissing('X-Request-Id');
 
+    // Assert
     expect(file_exists(chronicleLogPath()))->toBeFalse();
 });
 
 it('logs 2xx responses at info level', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/ok', fn () => 'ok')->middleware(LogRequests::class);
 
+    // Act
     $this->get('/ok');
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1)
         ->and($handler->getRecords()[0]->level)->toBe(Level::Info);
 });
 
 it('logs 3xx responses at info level', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/redirect', fn () => redirect('/ok'))->middleware(LogRequests::class);
 
+    // Act
     $this->get('/redirect');
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1)
         ->and($handler->getRecords()[0]->level)->toBe(Level::Info);
 });
 
 it('logs 4xx responses at warning level', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/not-found', fn () => abort(404))->middleware(LogRequests::class);
 
+    // Act
     $this->get('/not-found');
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1)
         ->and($handler->getRecords()[0]->level)->toBe(Level::Warning);
 });
 
 it('logs 5xx responses at error level', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/boom', fn () => throw new RuntimeException('boom'))->middleware(LogRequests::class);
 
+    // Act
     $this->get('/boom');
 
+    // Assert
     $records = array_values(array_filter(
         $handler->getRecords(),
         fn (LogRecord $record) => (chronicleEntry($record->message)['type'] ?? null) === 'request',
@@ -112,12 +133,15 @@ it('logs 5xx responses at error level', function () {
 });
 
 it('logs a failed request as a single event with the exception merged', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/boom', fn () => throw new RuntimeException('boom'))->middleware(LogRequests::class);
 
+    // Act
     $this->get('/boom')->assertStatus(500);
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1);
 
     $entry = chronicleEntries($handler)[0];
@@ -129,13 +153,16 @@ it('logs a failed request as a single event with the exception merged', function
 });
 
 it('merges the exception from a json error response', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     $response = response()->json(['component' => 'error-page'], 500)
         ->withException(new RuntimeException('boom'));
 
+    // Act
     app(RequestLogger::class)->log(Request::create('/contact', 'POST'), $response, microtime(true));
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['status'])->toBe(500)
@@ -143,12 +170,15 @@ it('merges the exception from a json error response', function () {
 });
 
 it('logs structured exception fields on failed requests', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/boom', fn () => throw PaymentDeclined::byIssuer())->middleware(LogRequests::class);
 
+    // Act
     $this->get('/boom')->assertStatus(500);
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['error.code'])->toBe('billing.declined')
@@ -157,12 +187,15 @@ it('logs structured exception fields on failed requests', function () {
 });
 
 it('logs http exceptions on failed requests', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/missing', fn () => abort(404))->middleware(LogRequests::class);
 
+    // Act
     $this->get('/missing')->assertStatus(404);
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['status'])->toBe(404)
@@ -170,6 +203,7 @@ it('logs http exceptions on failed requests', function () {
 });
 
 it('merges context accumulated through chronicle set into the request event', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/context', function () {
@@ -181,8 +215,10 @@ it('merges context accumulated through chronicle set into the request event', fu
         return 'ok';
     })->middleware(LogRequests::class);
 
+    // Act
     $this->get('/context');
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['user.email'])->toBe('nils@example.com')
@@ -190,6 +226,7 @@ it('merges context accumulated through chronicle set into the request event', fu
 });
 
 it('lets accumulated context override request fields but not error fields', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/override', function () {
@@ -201,8 +238,10 @@ it('lets accumulated context override request fields but not error fields', func
         throw new RuntimeException('boom');
     })->middleware(LogRequests::class);
 
+    // Act
     $this->get('/override')->assertStatus(500);
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['user.id'])->toBe(999)
@@ -211,6 +250,7 @@ it('lets accumulated context override request fields but not error fields', func
 });
 
 it('collapses nested context arrays into dotted keys and json strings', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/nested', function () {
@@ -225,8 +265,10 @@ it('collapses nested context arrays into dotted keys and json strings', function
         return 'ok';
     })->middleware(LogRequests::class);
 
+    // Act
     $this->get('/nested');
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['user.email'])->toBe('nils@example.com')
@@ -235,6 +277,7 @@ it('collapses nested context arrays into dotted keys and json strings', function
 });
 
 it('keeps request user data when context enriches the same group', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/enriched', function () {
@@ -248,6 +291,7 @@ it('keeps request user data when context enriches the same group', function () {
         return 'ok';
     })->middleware(LogRequests::class);
 
+    // Act
     $this->actingAs(new class implements Authenticatable
     {
         public function getAuthIdentifierName(): string
@@ -283,6 +327,7 @@ it('keeps request user data when context enriches the same group', function () {
         }
     })->get('/enriched');
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['user.id'])->toBe(42)
@@ -291,6 +336,7 @@ it('keeps request user data when context enriches the same group', function () {
 });
 
 it('does not leak accumulated context once the context is flushed', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/marker', function () {
@@ -301,12 +347,14 @@ it('does not leak accumulated context once the context is flushed', function () 
 
     Route::get('/plain', fn () => 'ok')->middleware(LogRequests::class);
 
+    // Act
     $this->get('/marker');
 
     Context::flush();
 
     $this->get('/plain');
 
+    // Assert
     $entries = chronicleEntries($handler);
 
     expect($entries[0]['request.marker'])->toBe('first')
@@ -314,22 +362,28 @@ it('does not leak accumulated context once the context is flushed', function () 
 });
 
 it('accepts an explicit level in chronicle record', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
+    // Act
     app(Chronicle::class)->record('request', ['status' => 200], Level::Warning);
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1)
         ->and($handler->getRecords()[0]->level)->toBe(Level::Warning)
         ->and(chronicleEntries($handler)[0]['status'])->toBe(200);
 });
 
 it('flattens fields in chronicle record and merges context under them', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Context::add(['job' => ['id' => 7], 'order.id' => 1]);
 
+    // Act
     app(Chronicle::class)->record('order.paid', ['order' => ['id' => 2, 'total' => 10]]);
 
+    // Assert
     $entry = chronicleEntries($handler)[0];
 
     expect($entry['order.id'])->toBe(2)
@@ -339,6 +393,7 @@ it('flattens fields in chronicle record and merges context under them', function
 });
 
 it('drops request logs when the sampler returns false', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     config()->set('chronicle.sampling', SuccessfulRequestsSampler::class);
@@ -346,38 +401,48 @@ it('drops request logs when the sampler returns false', function () {
     Route::get('/ok', fn () => 'ok')->middleware(LogRequests::class);
     Route::get('/missing', fn () => abort(404))->middleware(LogRequests::class);
 
+    // Act
     $this->get('/ok');
     $this->get('/missing');
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1)
         ->and(chronicleEntries($handler)[0]['status'])->toBe(200);
 });
 
 it('keeps every request log when no sampler is configured', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
 
+    // Act
     $this->get('/ping');
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1);
 });
 
 it('passes request, response and payload to the sampler', function () {
+    // Arrange
     $handler = chronicleTestHandler();
 
     config()->set('chronicle.sampling', RecordingSampler::class);
 
     Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
 
+    // Act
     $this->get('/ping');
 
+    // Assert
     expect($handler->getRecords())->toHaveCount(1)
         ->and(RecordingSampler::$seen)->toBe(['GET', 200, 'http://localhost/ping']);
 });
 
 it('throws when the configured sampler does not implement the interface', function () {
+    // Arrange
     config()->set('chronicle.sampling', NotASampler::class);
 
+    // Act & Assert
     app(RequestLogger::class)->log(request(), response('ok'), microtime(true));
 })->throws(InvalidSampler::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');
