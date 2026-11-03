@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Context;
 use Larasell\Chronicle\Chronicle;
 use Larasell\Chronicle\Exceptions\HasStructuredException;
@@ -47,6 +48,14 @@ it('records domain exceptions built through the structured error constructor', f
 it('records structured exceptions thrown inline', function (string $class, string $base) {
     $handler = chronicleTestHandler();
     $previous = new RuntimeException('network down');
+
+    if (! is_a($class, Throwable::class, true)) {
+        throw new UnexpectedValueException("The dataset must name a throwable class, [{$class}] given.");
+    }
+
+    if (! class_exists($base)) {
+        throw new UnexpectedValueException("The dataset must name an SPL base class, [{$base}] given.");
+    }
 
     try {
         throw new $class(
@@ -102,6 +111,7 @@ it('merges exception context and lets call-site context win', function () {
     {
         use HasStructuredException;
 
+        /** @return array<string, string> */
         public function context(): array
         {
             return [
@@ -135,6 +145,7 @@ it('truncates long context values', function () {
 
     $e = new class('boom') extends RuntimeException
     {
+        /** @return array<string, string> */
         public function context(): array
         {
             return ['raw' => str_repeat('a', 1500)];
@@ -143,7 +154,7 @@ it('truncates long context values', function () {
 
     app(Chronicle::class)->recordError($e);
 
-    expect(strlen(chronicleEntries($handler)[0]['raw']))->toBe(1000);
+    expect(strlen(Arr::string(chronicleEntries($handler)[0], 'raw')))->toBe(1000);
 });
 
 it('accepts an explicit level in record error', function () {

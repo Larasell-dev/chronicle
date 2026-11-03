@@ -1,0 +1,15 @@
+includes:
+    - vendor/pestphp/pest/extension.neon
+
+parameters:
+    level: max
+    paths:
+        - src
+        - config
+        - tests
+
+services:
+    -
+        class: Larasell\Chronicle\Tests\PHPStan\PestClosureThisExtension
+        tags:
+            - phpstan.functionParameterClosureThisExtension

@@ -10,6 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RecordingSampler implements Sampler
 {
+    /** @var list<mixed> */
     public static array $seen = [];
 
     public function shouldLog(Request $request, Response $response, array $payload): bool

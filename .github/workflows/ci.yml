@@ -60,6 +60,26 @@ jobs:
       - name: Run Commitlint
         run: npx commitlint --from=${{ github.event.pull_request.base.sha }} --to=HEAD
 
+  phpstan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: PHPStan
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: 8.4
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --no-progress
+
   pint:
     runs-on: ubuntu-latest
     timeout-minutes: 15

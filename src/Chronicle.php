@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle;
 
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Larasell\Chronicle\WideEvents\ErrorFields;
 use Monolog\Level;
 use Psr\Log\LoggerInterface;
@@ -15,12 +18,17 @@ class Chronicle
 {
     /**
      * Records a wide event of the given type. The fields you pass win over fields in Context.
+     *
+     * @param  array<mixed>  $fields
      */
     public function record(string $type, array $fields = [], Level|string $level = Level::Info): void
     {
         $this->write($this->event($type, $fields), $level);
     }
 
+    /**
+     * @param  array<mixed>  $context
+     */
     public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
     {
         $this->record('error', ErrorFields::for($e, $context), $level);
@@ -34,6 +42,8 @@ class Chronicle
      *
      * @internal
      *
+     * @param  array<mixed>  $fields
+     * @param  array<mixed>  $defaults
      * @return array<string, mixed>
      */
     public function event(string $type, array $fields, array $defaults = []): array
@@ -50,6 +60,8 @@ class Chronicle
      * Writes a wide event built by event() to the Chronicle log channel.
      *
      * @internal
+     *
+     * @param  array<string, mixed>  $event
      */
     public function write(array $event, Level|string $level): void
     {
@@ -57,11 +69,22 @@ class Chronicle
             return;
         }
 
-        $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
+        $level = $level instanceof Level ? $level : $this->levelNamed($level);
 
         $this->channel()->{$level->getName()}(
             (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
         );
+    }
+
+    protected function levelNamed(string $name): Level
+    {
+        $name = strtoupper($name);
+
+        if (! in_array($name, Level::NAMES, true)) {
+            throw new InvalidArgumentException("[{$name}] is not a log level.");
+        }
+
+        return Level::fromName($name);
     }
 
     /**
@@ -72,27 +95,35 @@ class Chronicle
      */
     protected function channel(): LoggerInterface
     {
-        $channels = config('chronicle.channels', []);
+        $channels = Config::array('chronicle.channels', []);
 
-        foreach ($channels as $name => $channel) {
+        foreach (array_keys($channels) as $name) {
+            $channel = Arr::array($channels, $name);
+
             if (($channel['driver'] ?? null) === 'stack') {
+                $members = Arr::array($channel, 'channels', []);
+
                 $channel['channels'] = array_map(
-                    fn (string $name): string => isset($channels[$name]) ? 'chronicle-'.$name : $name,
-                    $channel['channels'] ?? [],
+                    function (int|string $index) use ($members, $channels): string {
+                        $member = Arr::string($members, $index);
+
+                        return isset($channels[$member]) ? 'chronicle-'.$member : $member;
+                    },
+                    array_keys($members),
                 );
             }
 
             config()->set('logging.channels.chronicle-'.$name, $channel);
         }
 
-        return Log::channel('chronicle-'.config('chronicle.default', 'file'));
+        return Log::channel('chronicle-'.Config::string('chronicle.default', 'file'));
     }
 
     /**
      * Collapse nested context arrays into flat, dot-notation string keys.
      * Lists are collapsed into a truncated JSON string.
      *
-     * @param  array<string, mixed>  $context
+     * @param  array<mixed>  $context
      * @return array<string, mixed>
      */
     protected function flatten(array $context, string $prefix = ''): array
