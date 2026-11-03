@@ -28,6 +28,12 @@ abstract class TestCase extends TestbenchTestCase
      */
     protected function defineEnvironment($app): void
     {
+        // A log file of the test's own, never the one in storage/: that one outlives the test,
+        // and every run and process shares it, so a test could read lines another one wrote.
+        $logPath = sys_get_temp_dir().'/chronicle-test-'.bin2hex(random_bytes(8)).'.log';
+        config()->set('chronicle.channels.file.path', $logPath);
+        $this->beforeApplicationDestroyed(fn () => $this->deleteIfExists($logPath));
+
         $app->singleton(TestHandler::class);
 
         config()->set('chronicle.channels.test', [
@@ -41,5 +47,12 @@ abstract class TestCase extends TestbenchTestCase
             'driver' => 'custom',
             'via' => fn (): Logger => new Logger('app_test', [$app->make(TestHandler::class)]),
         ]);
+    }
+
+    private function deleteIfExists(string $path): void
+    {
+        if (is_file($path)) {
+            unlink($path);
+        }
     }
 }

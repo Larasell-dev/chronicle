@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Config;
 use Larasell\Chronicle\Tests\TestCase;
 use Monolog\Handler\TestHandler;
 use Monolog\LogRecord;
@@ -15,6 +16,14 @@ function chronicleTestHandler(): TestHandler
     config()->set('chronicle.default', 'test');
 
     return app(TestHandler::class);
+}
+
+/**
+ * The log file of this test's file channel, which TestCase makes fresh for every test.
+ */
+function chronicleLogPath(): string
+{
+    return Config::string('chronicle.channels.file.path');
 }
 
 /**
