@@ -28,7 +28,7 @@ class LogRequests
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if (! config('chronicle.enabled', true)) {
+        if (! config('chronicle.enabled')) {
             return $next($request);
         }
 

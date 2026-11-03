@@ -122,7 +122,7 @@ class ChronicleServiceProvider extends ServiceProvider
             $logger->extend('posthog', function (Application $app, array $config): Logger {
                 // An unset POSTHOG_API_KEY is null; the handler treats an empty key as missing.
                 $apiKey = $config['api_key'] ?? '';
-                $level = strtoupper(Arr::string($config, 'level', 'info'));
+                $level = strtoupper(Arr::string($config, 'level', PostHogHandler::LEVEL_DEFAULT));
 
                 if (! is_string($apiKey)) {
                     throw new InvalidArgumentException('The api_key of the posthog channel must be a string.');
@@ -133,11 +133,11 @@ class ChronicleServiceProvider extends ServiceProvider
                 }
 
                 $handler = new PostHogHandler(
-                    host: Arr::string($config, 'host', 'https://us.i.posthog.com'),
+                    host: Arr::string($config, 'host', PostHogHandler::HOST_DEFAULT),
                     apiKey: $apiKey,
                     http: $app->make(HttpFactory::class),
                     service: Config::string('app.name', 'laravel'),
-                    scope: Arr::string($config, 'scope', 'chronicle'),
+                    scope: Arr::string($config, 'scope', PostHogHandler::SCOPE_DEFAULT),
                     level: Level::fromName($level),
                     debug: $app->hasDebugModeEnabled(),
                 );

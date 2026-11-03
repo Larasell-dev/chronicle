@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Larasell\Chronicle\WideEvents\Outputs\ChronicleFormatter;
+use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 
 return [
     'enabled' => env('CHRONICLE_ENABLED', true),
@@ -34,8 +35,8 @@ return [
         'posthog' => [
             'driver' => 'posthog',
             'api_key' => env('POSTHOG_API_KEY'),
-            'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
-            'level' => 'info',
+            'host' => env('POSTHOG_HOST', PostHogHandler::HOST_DEFAULT),
+            'level' => PostHogHandler::LEVEL_DEFAULT,
         ],
     ],
 
