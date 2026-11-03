@@ -3,8 +3,8 @@
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\Errors\HasStructuredError;
-use Larasell\Chronicle\Errors\StructuredError;
+use Larasell\Chronicle\Exceptions\HasStructuredException;
+use Larasell\Chronicle\Exceptions\StructuredException;
 use Larasell\Chronicle\Tests\Fixtures\CouldNotInviteMember;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Monolog\Handler\TestHandler;
@@ -87,9 +87,9 @@ it('degrades to a stable shape for plain throwables', function () {
 it('merges exception context and lets call-site context win', function () {
     $handler = errorTestHandler();
 
-    $e = new class('Payment failed') extends RuntimeException implements StructuredError
+    $e = new class('Payment failed') extends RuntimeException implements StructuredException
     {
-        use HasStructuredError;
+        use HasStructuredException;
 
         public function context(): array
         {

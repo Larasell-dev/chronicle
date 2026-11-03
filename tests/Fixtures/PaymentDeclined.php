@@ -3,13 +3,13 @@
 namespace Larasell\Chronicle\Tests\Fixtures;
 
 use Exception;
-use Larasell\Chronicle\Errors\HasStructuredError;
-use Larasell\Chronicle\Errors\StructuredError;
+use Larasell\Chronicle\Exceptions\HasStructuredException;
+use Larasell\Chronicle\Exceptions\StructuredException;
 use Throwable;
 
-class PaymentDeclined extends Exception implements StructuredError
+class PaymentDeclined extends Exception implements StructuredException
 {
-    use HasStructuredError;
+    use HasStructuredException;
 
     public static function byIssuer(?Throwable $previous = null): self
     {

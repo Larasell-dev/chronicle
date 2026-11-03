@@ -3,12 +3,12 @@
 namespace Larasell\Chronicle\Tests\Fixtures;
 
 use Exception;
-use Larasell\Chronicle\Errors\HasStructuredError;
-use Larasell\Chronicle\Errors\StructuredError;
+use Larasell\Chronicle\Exceptions\HasStructuredException;
+use Larasell\Chronicle\Exceptions\StructuredException;
 
-class CouldNotInviteMember extends Exception implements StructuredError
+class CouldNotInviteMember extends Exception implements StructuredException
 {
-    use HasStructuredError;
+    use HasStructuredException;
 
     public static function emailAlreadyInvited(string $email, string $team): self
     {
