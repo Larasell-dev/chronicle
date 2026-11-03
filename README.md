@@ -173,6 +173,23 @@ Chronicle reads them once at boot and stops the app there when one is malformed,
 and bounded like any other field. Fields Chronicle measures, such as `status` or `route`, win
 over them, and so do `Context`, `add()` and the fields you pass to `record()`. The posthog channel sends them once per batch, as the OTLP resource.
 
+### What to log
+
+Chronicle logs what it can measure itself: the request's id, route, status, duration and user, the
+error, and the global fields. What makes an event useful is what only your app knows, so add it
+with `Chronicle::add()` where your code knows it:
+
+- **Who it was for**, beyond `user.id`: e.g. `user.plan` or `user.account_age_days`.
+- **What it worked on**, by id and the numbers that describe it: e.g. `order.id`, `cart.items`,
+  `cart.total`.
+- **Which code ran**: the feature flags and experiment variants that were on.
+- **What came out**: result counts, like `products.total` for a search, and where your own logic
+  gave up.
+- **What it called**: for each external service, the provider, `duration_ms` and attempts.
+
+Use the same key for the same thing everywhere, and put units last, like `duration_ms`. Leave out
+personal data such as names and email addresses, secrets, and request or response bodies.
+
 ### Redact secrets
 
 Chronicle logs the value of every key that contains a word from `redact` as `[redacted]`,
