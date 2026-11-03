@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Exceptions\StructuredInvalidArgumentException;
+use Larasell\Chronicle\Tests\Fixtures\EveryTenthRequestSampler;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
 use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
@@ -18,6 +19,7 @@ use Larasell\Chronicle\WideEvents\Enums\Level;
 use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
+use Larasell\Chronicle\WideEvents\Requests\Sampler;
 use Monolog\Level as MonologLevel;
 use Monolog\LogRecord;
 use RuntimeException;
@@ -681,6 +683,25 @@ it('cuts the unencodable report to 1000 bytes of valid json and counts every val
         ->and($entry['chronicle.unencodable_count'])->toBe(100);
 });
 
+/**
+ * Configures a sampler and rebuilds the RequestLogger, as the app does once at boot. Returns
+ * the sampler the logger now holds, so a test can look at it.
+ *
+ * @template TSampler of Sampler
+ *
+ * @param  class-string<TSampler>  $sampler
+ * @return TSampler
+ */
+function useSampler(string $sampler): Sampler
+{
+    config()->set('chronicle.sampling', $sampler);
+    app()->singleton($sampler);
+    app()->forgetInstance(RequestLogger::class);
+    app(RequestLogger::class);
+
+    return app($sampler);
+}
+
 it('registers chronicle channels at boot, pointing stacks at chronicle channels', function () {
     // Act & Assert
     expect(config('logging.channels.chronicle-stack.channels'))->toBe(['chronicle-file', 'chronicle-posthog']);
@@ -690,7 +711,7 @@ it('drops request logs when the sampler returns false', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
-    config()->set('chronicle.sampling', SuccessfulRequestsSampler::class);
+    useSampler(SuccessfulRequestsSampler::class);
 
     Route::get('/ok', fn () => 'ok')->middleware(LogRequests::class);
     Route::get('/missing', fn () => abort(404))->middleware(LogRequests::class);
@@ -721,7 +742,7 @@ it('passes request, response and payload to the sampler', function () {
     // Arrange
     $handler = chronicleTestHandler();
 
-    config()->set('chronicle.sampling', RecordingSampler::class);
+    $sampler = useSampler(RecordingSampler::class);
 
     Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
 
@@ -730,13 +751,30 @@ it('passes request, response and payload to the sampler', function () {
 
     // Assert
     expect($handler->getRecords())->toHaveCount(1)
-        ->and(RecordingSampler::$seen)->toBe(['GET', 200, 'http://localhost/ping']);
+        ->and($sampler->seen)->toBe([['GET', 200, 'http://localhost/ping']]);
+});
+
+it('builds the sampler once, so it can keep state across requests', function () {
+    // Arrange
+    $handler = chronicleTestHandler();
+    useSampler(EveryTenthRequestSampler::class);
+
+    Route::get('/ping', fn () => 'ok')->middleware(LogRequests::class);
+
+    // Act
+    foreach (range(1, 20) as $request) {
+        $this->get('/ping');
+    }
+
+    // Assert
+    expect($handler->getRecords())->toHaveCount(2);
 });
 
 it('throws when the configured sampler does not implement the interface', function () {
     // Arrange
     config()->set('chronicle.sampling', NotASampler::class);
+    app()->forgetInstance(RequestLogger::class);
 
     // Act & Assert
-    app(RequestLogger::class)->log(request(), response('ok'), hrtime(true));
+    app(RequestLogger::class);
 })->throws(InvalidSampler::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');

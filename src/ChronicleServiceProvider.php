@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle;
 
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -16,7 +17,9 @@ use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Larasell\Chronicle\WideEvents\Chronicle;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
+use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
+use Larasell\Chronicle\WideEvents\Requests\Sampler;
 use Monolog\Level;
 use Monolog\Logger;
 
@@ -29,11 +32,19 @@ class ChronicleServiceProvider extends ServiceProvider
         $this->registerLoggingDrivers();
 
         $this->app->singleton(Chronicle::class);
-        $this->app->singleton(RequestLogger::class);
+        $this->app->singleton(
+            RequestLogger::class,
+            fn (Container $app): RequestLogger => new RequestLogger($app->make(Chronicle::class), $this->sampler($app)),
+        );
 
         // Before any provider boots, so another provider's boot() can already log through
         // Chronicle, and after the app's config, Testbench's defineEnvironment() included, is set.
         $this->app->booting(fn () => $this->registerChannels());
+
+        // Once every provider booted, since an app's sampler may depend on them. Building the
+        // RequestLogger now resolves the sampler, so a broken chronicle.sampling stops the app at
+        // boot, rather than failing every request that LogRequests logs.
+        $this->app->booted(fn () => $this->app->make(RequestLogger::class));
     }
 
     public function boot(): void
@@ -72,6 +83,25 @@ class ChronicleServiceProvider extends ServiceProvider
 
             Config::set('logging.channels.chronicle-'.$name, $channel);
         }
+    }
+
+    /**
+     * The configured sampler, resolved once, so a sampler that keeps state across requests works
+     * wherever the process lives on, e.g. under Octane. Null keeps every request event.
+     */
+    protected function sampler(Container $app): ?Sampler
+    {
+        if (config('chronicle.sampling') === null) {
+            return null;
+        }
+
+        $sampler = $app->make(Config::string('chronicle.sampling'));
+
+        if (! $sampler instanceof Sampler) {
+            throw InvalidSampler::doesNotImplementSampler($sampler);
+        }
+
+        return $sampler;
     }
 
     protected function registerLoggingDrivers(): void
