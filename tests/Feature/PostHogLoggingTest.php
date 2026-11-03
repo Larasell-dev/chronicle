@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Log;
 use Larasell\Chronicle\Chronicle;
+use Larasell\Chronicle\WideEvents\Outputs\Exceptions\MissingPostHogApiKey;
 use Larasell\Chronicle\WideEvents\Outputs\PostHogHandler;
 use Monolog\Level;
 use OpenTelemetry\API\Logs\LoggerInterface;
@@ -161,7 +162,7 @@ it('throws in debug mode when the posthog channel is enabled without an api key'
     config()->set('chronicle.channel', 'posthog');
 
     app(Chronicle::class)->record('request');
-})->throws(RuntimeException::class, 'POSTHOG_API_KEY is required');
+})->throws(MissingPostHogApiKey::class, 'POSTHOG_API_KEY is required');
 
 it('does not throw outside debug mode when the api key is missing', function () {
     config()->set('app.debug', false);
@@ -171,5 +172,5 @@ it('does not throw outside debug mode when the api key is missing', function () 
 
     $record = fn () => app(Chronicle::class)->record('request');
 
-    expect($record)->not->toThrow(RuntimeException::class);
+    expect($record)->not->toThrow(MissingPostHogApiKey::class);
 });

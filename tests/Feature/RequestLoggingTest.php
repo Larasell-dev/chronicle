@@ -6,10 +6,11 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Larasell\Chronicle\Chronicle;
-use Larasell\Chronicle\ChronicleException;
 use Larasell\Chronicle\Tests\Fixtures\NotASampler;
+use Larasell\Chronicle\Tests\Fixtures\PaymentDeclined;
 use Larasell\Chronicle\Tests\Fixtures\RecordingSampler;
 use Larasell\Chronicle\Tests\Fixtures\SuccessfulRequestsSampler;
+use Larasell\Chronicle\WideEvents\Requests\Exceptions\InvalidSampler;
 use Larasell\Chronicle\WideEvents\Requests\Middleware\LogRequests;
 use Larasell\Chronicle\WideEvents\Requests\RequestLogger;
 use Monolog\Handler\TestHandler;
@@ -162,12 +163,7 @@ it('merges the exception from a json error response', function () {
 it('logs structured exception fields on failed requests', function () {
     $handler = chronicleTestHandler();
 
-    Route::get('/boom', fn () => throw ChronicleException::make(
-        code: 'billing.declined',
-        message: 'Payment failed',
-        why: 'Issuer declined the charge',
-        fix: 'Try a different card',
-    ))->middleware(LogRequests::class);
+    Route::get('/boom', fn () => throw PaymentDeclined::byIssuer())->middleware(LogRequests::class);
 
     $this->get('/boom')->assertStatus(500);
 
@@ -387,4 +383,4 @@ it('throws when the configured sampler does not implement the interface', functi
     config()->set('chronicle.sampling', NotASampler::class);
 
     app(RequestLogger::class)->log(request(), response('ok'), microtime(true));
-})->throws(ChronicleException::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');
+})->throws(InvalidSampler::class, 'chronicle.sampling must resolve to an instance of Larasell\Chronicle\WideEvents\Requests\Sampler');
