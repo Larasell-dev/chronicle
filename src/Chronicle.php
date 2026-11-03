@@ -4,6 +4,7 @@ namespace Larasell\Chronicle;
 
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
+use Larasell\Chronicle\WideEvents\ErrorFields;
 use Monolog\Level;
 use Throwable;
 
@@ -31,7 +32,7 @@ class Chronicle
 
     public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
     {
-        $payload = array_merge(Context::all(), $this->errorPayload($e, $context));
+        $payload = array_merge(Context::all(), ErrorFields::for($e, $context));
 
         $this->record('error', $this->flattenContext($payload), $level);
     }
@@ -60,43 +61,6 @@ class Chronicle
         }
 
         return $flattened;
-    }
-
-    /**
-     * @param  array<string, mixed>  $context
-     * @return array<string, mixed>
-     */
-    public function errorPayload(Throwable $e, array $context = []): array
-    {
-        $structured = $e instanceof StructuredError;
-
-        return array_merge($this->exceptionContext($e), $context, [
-            'error' => [
-                'code' => $structured ? $e->errorCode() : null,
-                'message' => $e->getMessage(),
-                'why' => $structured ? $e->errorWhy() : null,
-                'fix' => $structured ? $e->errorFix() : null,
-                'link' => $structured ? $e->errorLink() : null,
-            ],
-        ]);
-    }
-
-    protected function exceptionContext(Throwable $e): array
-    {
-        if (! method_exists($e, 'context')) {
-            return [];
-        }
-
-        $context = $e->context();
-
-        if (! is_array($context)) {
-            return [];
-        }
-
-        return array_map(
-            fn ($value) => is_string($value) && strlen($value) > 1000 ? substr($value, 0, 1000) : $value,
-            $context,
-        );
     }
 
     protected function assertPostHogConfigured(): void

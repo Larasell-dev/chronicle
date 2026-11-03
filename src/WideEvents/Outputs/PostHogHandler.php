@@ -1,6 +1,6 @@
 <?php
 
-namespace Larasell\Chronicle\Logging;
+namespace Larasell\Chronicle\WideEvents\Outputs;
 
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;

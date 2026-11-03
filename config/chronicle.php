@@ -20,7 +20,8 @@ return [
     /*
      * The class that decides which request events Chronicle keeps, e.g.
      * App\Logging\KeepFailuresAndSlowRequests::class. It must implement
-     * Larasell\Chronicle\Sampler. Leave it null to keep every request event.
+     * Larasell\Chronicle\WideEvents\Requests\Sampler. Leave it null to keep
+     * every request event.
      */
     'sampling' => null,
 ];

@@ -3,8 +3,8 @@
 namespace Larasell\Chronicle\Tests\Fixtures;
 
 use Exception;
-use Larasell\Chronicle\HasStructuredError;
-use Larasell\Chronicle\StructuredError;
+use Larasell\Chronicle\Errors\HasStructuredError;
+use Larasell\Chronicle\Errors\StructuredError;
 
 class CouldNotInviteMember extends Exception implements StructuredError
 {

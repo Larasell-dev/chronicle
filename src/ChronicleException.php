@@ -2,6 +2,8 @@
 
 namespace Larasell\Chronicle;
 
+use Larasell\Chronicle\Errors\HasStructuredError;
+use Larasell\Chronicle\Errors\StructuredError;
 use RuntimeException;
 use Throwable;
 
