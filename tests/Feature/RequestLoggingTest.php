@@ -341,6 +341,21 @@ it('accepts an explicit level in chronicle record', function () {
         ->and(chronicleEntries($handler)[0]['status'])->toBe(200);
 });
 
+it('flattens fields in chronicle record and merges context under them', function () {
+    $handler = chronicleTestHandler();
+
+    Context::add(['job' => ['id' => 7], 'order.id' => 1]);
+
+    app(Chronicle::class)->record('order.paid', ['order' => ['id' => 2, 'total' => 10]]);
+
+    $entry = chronicleEntries($handler)[0];
+
+    expect($entry['order.id'])->toBe(2)
+        ->and($entry['order.total'])->toBe(10)
+        ->and($entry['job.id'])->toBe(7)
+        ->and($entry)->not->toHaveKey('order');
+});
+
 it('drops request logs when the sampler returns false', function () {
     $handler = chronicleTestHandler();
 

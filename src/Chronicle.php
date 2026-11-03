@@ -10,29 +10,55 @@ use Throwable;
 
 class Chronicle
 {
-    public function record(string $type, array $payload = [], Level|string $level = Level::Info): void
+    /**
+     * Records a wide event of the given type. The fields you pass win over fields in Context.
+     */
+    public function record(string $type, array $fields = [], Level|string $level = Level::Info): void
+    {
+        $this->write($this->event($type, $fields), $level);
+    }
+
+    public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
+    {
+        $this->record('error', ErrorFields::for($e, $context), $level);
+    }
+
+    /**
+     * Builds a wide event, so every event follows the same rules. Fields are flattened into dotted
+     * keys and merged in this order, later ones winning: the defaults, everything in Context, the
+     * fields. Defaults are fields Chronicle measured itself, such as a request's user.id, which
+     * apps may replace through Context.
+     *
+     * @internal
+     *
+     * @return array<string, mixed>
+     */
+    public function event(string $type, array $fields, array $defaults = []): array
+    {
+        return array_merge(
+            ['timestamp' => now()->toIso8601String(), 'type' => $type],
+            $this->flatten($defaults),
+            $this->flatten(Context::all()),
+            $this->flatten($fields),
+        );
+    }
+
+    /**
+     * Writes a wide event built by event() to the Chronicle log channel.
+     *
+     * @internal
+     */
+    public function write(array $event, Level|string $level): void
     {
         if (! config('chronicle.enabled', true)) {
             return;
         }
 
-        $entry = array_merge([
-            'timestamp' => now()->toIso8601String(),
-            'type' => $type,
-        ], $payload);
-
         $level = $level instanceof Level ? $level : Level::fromName(ucfirst($level));
 
         Log::channel(config('chronicle.channel', 'chronicle'))->{$level->getName()}(
-            (string) json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
+            (string) json_encode($event, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
         );
-    }
-
-    public function recordError(Throwable $e, Level|string $level = Level::Error, array $context = []): void
-    {
-        $payload = array_merge(Context::all(), ErrorFields::for($e, $context));
-
-        $this->record('error', $this->flattenContext($payload), $level);
     }
 
     /**
@@ -42,7 +68,7 @@ class Chronicle
      * @param  array<string, mixed>  $context
      * @return array<string, mixed>
      */
-    public function flattenContext(array $context, string $prefix = ''): array
+    protected function flatten(array $context, string $prefix = ''): array
     {
         $flattened = [];
 
@@ -54,7 +80,7 @@ class Chronicle
             } elseif (array_is_list($value)) {
                 $flattened[$path] = substr((string) json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR), 0, 1000);
             } else {
-                $flattened = array_merge($flattened, $this->flattenContext($value, $path));
+                $flattened = array_merge($flattened, $this->flatten($value, $path));
             }
         }
 
