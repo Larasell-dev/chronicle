@@ -14,11 +14,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
-      fail-fast: true
+      # Finish every cell, so one failure shows whether it is specific to a PHP or Laravel version.
+      fail-fast: false
       matrix:
         php: [8.4, 8.5]
+        laravel: [12, 13]
+        include:
+          # composer.lock holds Laravel 13, so that cell tests exactly what is locked.
+          - laravel: 13
+            locked: true
 
-    name: Tests (PHP ${{ matrix.php }})
+    name: Tests (PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }})
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,8 +35,17 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
 
-      - name: Install dependencies
+      - name: Install locked dependencies
+        if: matrix.locked
         run: composer install --prefer-dist --no-interaction --no-progress
+
+      # Re-resolves the lock for this Laravel version, which also picks the matching Testbench
+      # and Pest (Laravel 12 needs Testbench 10 and Pest 4). composer.json stays unchanged.
+      - name: Install Laravel ${{ matrix.laravel }}
+        if: ${{ !matrix.locked }}
+        run: >-
+          composer update --with-all-dependencies --prefer-dist --no-interaction --no-progress
+          --with "laravel/framework:^${{ matrix.laravel }}.0"
 
       - name: Run tests
         run: vendor/bin/pest
