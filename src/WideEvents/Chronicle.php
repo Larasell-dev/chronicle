@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle\WideEvents;
 
+use Closure;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
@@ -62,12 +63,35 @@ class Chronicle
     }
 
     /**
-     * Builds a wide event, so every event follows the same rules. Fields are flattened into dotted
-     * keys and merged in this order, later ones winning: the defaults, everything in Context, the
-     * fields. Defaults are fields Chronicle measured itself, such as a request's user.id, which
-     * apps may replace through Context.
+     * Records the event of one HTTP request, for RequestLogger. $shouldLog sees the finished event, so a sampler decides on
+     * exactly what would be written.
      *
      * @internal
+     *
+     * @param  array<mixed>  $errorFields
+     * @param  Closure(array<string, mixed>): bool  $shouldLog  Whether to write the finished event.
+     */
+    public function recordRequest(
+        EventDefaults $requestFields,
+        array $errorFields,
+        Level $level,
+        Closure $shouldLog,
+    ): void {
+        $event = $this->event('request', $errorFields, $requestFields);
+
+        if ($shouldLog($event) === false) {
+            return;
+        }
+
+        $this->write($event, $level);
+    }
+
+    /**
+     * Builds a wide event, so every event follows the same rules. Fields are flattened into dotted
+     * keys and merged in this order, later ones winning: the defaults, everything in Context, the
+     * fields. The defaults are an EventDefaults, not a second array, so the two can't be swapped.
+     * They are fields Chronicle measured itself, such as a request's user.id, which apps may
+     * replace through Context.
      *
      * Every event is bounded: see the limits at the top of this class. An event over FIELDS_MAX
      * drops fields, those of Context first, and counts them in chronicle.fields_dropped.
@@ -78,16 +102,18 @@ class Chronicle
      * chronicle.unencodable_count when it is cut. Both count towards FIELDS_MAX.
      *
      * @param  array<mixed>  $fields
-     * @param  array<mixed>  $defaults
      * @return array<string, mixed>
      */
-    public function event(string $type, array $fields, array $defaults = []): array
-    {
+    private function event(
+        string $type,
+        array $fields,
+        ?EventDefaults $defaults = null,
+    ): array {
         $header = [
             'timestamp' => now()->toIso8601String(),
             'type' => mb_strcut($type, 0, self::VALUE_BYTES_MAX, 'UTF-8'),
         ];
-        $defaults = $this->flatten($defaults);
+        $defaults = $this->flatten($defaults->fields ?? []);
         $context = $this->flatten(Context::all());
         $fields = $this->flatten($fields);
 
@@ -179,11 +205,9 @@ class Chronicle
     /**
      * Writes a wide event built by event() to the Chronicle log channel.
      *
-     * @internal
-     *
      * @param  array<string, mixed>  $event
      */
-    public function write(array $event, Level $level): void
+    private function write(array $event, Level $level): void
     {
         if (! config('chronicle.enabled')) {
             return;
