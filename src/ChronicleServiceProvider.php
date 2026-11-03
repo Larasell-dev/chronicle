@@ -30,6 +30,10 @@ class ChronicleServiceProvider extends ServiceProvider
 
         $this->app->singleton(Chronicle::class);
         $this->app->singleton(RequestLogger::class);
+
+        // Before any provider boots, so another provider's boot() can already log through
+        // Chronicle, and after the app's config, Testbench's defineEnvironment() included, is set.
+        $this->app->booting(fn () => $this->registerChannels());
     }
 
     public function boot(): void
@@ -37,6 +41,37 @@ class ChronicleServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../config/chronicle.php' => $this->app->configPath('chronicle.php'),
         ], 'chronicle.config');
+    }
+
+    /**
+     * Registers Chronicle's channels with Laravel's log manager. They live in config/chronicle.php,
+     * so they get a chronicle- prefix, which keeps them apart from the app's own channels. A
+     * stack's channel names point to Chronicle's channels when one has that name, and to the app's
+     * channels otherwise. Laravel caches a logger on first use, so this runs once: changing
+     * chronicle.channels later has no effect, which is why nothing pretends otherwise.
+     */
+    protected function registerChannels(): void
+    {
+        $channels = Config::array('chronicle.channels', []);
+
+        foreach (array_keys($channels) as $name) {
+            $channel = Arr::array($channels, $name);
+
+            if (($channel['driver'] ?? null) === 'stack') {
+                $members = Arr::array($channel, 'channels', []);
+
+                $channel['channels'] = array_map(
+                    function (int|string $index) use ($members, $channels): string {
+                        $member = Arr::string($members, $index);
+
+                        return isset($channels[$member]) ? 'chronicle-'.$member : $member;
+                    },
+                    array_keys($members),
+                );
+            }
+
+            Config::set('logging.channels.chronicle-'.$name, $channel);
+        }
     }
 
     protected function registerLoggingDrivers(): void

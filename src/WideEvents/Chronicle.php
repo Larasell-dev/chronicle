@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Larasell\Chronicle\WideEvents;
 
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
@@ -228,34 +227,12 @@ class Chronicle
     }
 
     /**
-     * Returns the logger of the default Chronicle channel. Chronicle's channels live in
-     * config/chronicle.php, so they are registered with Laravel's log manager under a chronicle-
-     * prefix, which keeps them apart from the app's own channels. A stack's channel names point to
-     * Chronicle's channels when one has that name, and to the app's channels otherwise.
+     * Returns the logger of the default Chronicle channel. ChronicleServiceProvider registers the
+     * channels once at boot, and Laravel caches each logger by name, so this only picks one.
+     * chronicle.default is read on each event, since it is only a name.
      */
     protected function channel(): LoggerInterface
     {
-        $channels = Config::array('chronicle.channels', []);
-
-        foreach (array_keys($channels) as $name) {
-            $channel = Arr::array($channels, $name);
-
-            if (($channel['driver'] ?? null) === 'stack') {
-                $members = Arr::array($channel, 'channels', []);
-
-                $channel['channels'] = array_map(
-                    function (int|string $index) use ($members, $channels): string {
-                        $member = Arr::string($members, $index);
-
-                        return isset($channels[$member]) ? 'chronicle-'.$member : $member;
-                    },
-                    array_keys($members),
-                );
-            }
-
-            config()->set('logging.channels.chronicle-'.$name, $channel);
-        }
-
         return Log::channel('chronicle-'.Config::string('chronicle.default', 'file'));
     }
 

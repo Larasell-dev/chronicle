@@ -23,9 +23,10 @@ abstract class TestCase extends TestbenchTestCase
     }
 
     /**
-     * Defines every channel the tests use, so tests pick a channel through chronicle.default
-     * instead of defining one. All test channels write to one TestHandler per application, which
-     * chronicleTestHandler() returns.
+     * Defines every channel the tests use. Chronicle registers its channels once at boot, and this
+     * runs before that, so tests pick a channel through chronicle.default instead of defining one.
+     * All test channels write to one TestHandler per application, which chronicleTestHandler()
+     * returns.
      *
      * @param  Application  $app
      */
@@ -45,6 +46,11 @@ abstract class TestCase extends TestbenchTestCase
         config()->set('chronicle.channels.test', [
             'driver' => 'custom',
             'via' => fn (): Logger => new Logger('test', [$app->make(TestHandler::class)]),
+        ]);
+        config()->set('chronicle.channels.posthog.api_key', 'phc_test');
+        config()->set('chronicle.channels.posthog_without_key', [
+            'driver' => 'posthog',
+            'api_key' => null,
         ]);
 
         // An app channel on the same handler, so the app's own log lines and Chronicle's events
